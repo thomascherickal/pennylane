@@ -14,25 +14,26 @@
 """
 Unit tests for :mod:`openqml.operation`.
 """
-import unittest
-import logging as log
-log.getLogger()
+import pytest
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+log = logging.getLogger()
 
 import numpy as np
 import numpy.random as nr
 
-from defaults import openqml, BaseTest
+from conftest import BaseTest
+
+import openqml as qm
 import openqml.qnode as oq
 import openqml.operation as oo
 import openqml.variable as ov
 
 
-dev = openqml.device('default.qubit', wires=2)
-
-
-class BasicTest(BaseTest):
+class TestBasic(BaseTest):
     """Utility class tests."""
-    def test_heisenberg(self):
+    def test_heisenberg(self, tol):
         "Heisenberg picture adjoint actions of CV Operations."
 
         def h_test(cls):
@@ -62,8 +63,8 @@ class BasicTest(BaseTest):
 
             # check the inverse transform
             V = op.heisenberg_tr(2, inverse=True)
-            self.assertAlmostEqual(np.linalg.norm(U @ V -I), 0, delta=self.tol)
-            self.assertAlmostEqual(np.linalg.norm(V @ U -I), 0, delta=self.tol)
+            self.assertAlmostEqual(np.linalg.norm(U @ V -I), 0, delta=tol)
+            self.assertAlmostEqual(np.linalg.norm(V @ U -I), 0, delta=tol)
 
             # compare gradient recipe to numerical gradient
             h = 1e-7
@@ -75,14 +76,14 @@ class BasicTest(BaseTest):
                 Up = op.heisenberg_tr(0)
                 op.params = par
                 G = (Up-U) / h
-                self.assertAllAlmostEqual(D, G, delta=self.tol)
+                self.assertAllAlmostEqual(D, G, delta=tol)
 
-        for cls in openqml.ops.builtins_continuous.all_ops + openqml.expectation.builtins_continuous.all_ops:
+        for cls in qm.ops.builtins_continuous.all_ops + qm.expectation.builtins_continuous.all_ops:
             if cls._heisenberg_rep is not None:  # only test gaussian operations
                 h_test(cls)
 
 
-    def test_ops(self):
+    def test_ops(self, tol):
         "Operation initialization."
 
         def op_test(cls):
@@ -103,23 +104,23 @@ class BasicTest(BaseTest):
             cls(*pars, wires=ww, do_queue=False)
 
             # too many parameters
-            with self.assertRaisesRegex(ValueError, 'wrong number of parameters'):
+            with pytest.raises(ValueError, message='wrong number of parameters'):
                 cls(*(n+1)*[0], wires=ww, do_queue=False)
 
             # too few parameters
             if n > 0:
-                with self.assertRaisesRegex(ValueError, 'wrong number of parameters'):
+                with pytest.raises(ValueError, message='wrong number of parameters'):
                     cls(*(n-1)*[0], wires=ww, do_queue=False)
 
             if w > 0:
                 # too many or too few wires
-                with self.assertRaisesRegex(ValueError, 'wrong number of wires'):
+                with pytest.raises(ValueError, message='wrong number of wires'):
                     cls(*pars, wires=list(range(w+1)), do_queue=False)
-                with self.assertRaisesRegex(ValueError, 'wrong number of wires'):
+                with pytest.raises(ValueError, message='wrong number of wires'):
                     cls(*pars, wires=list(range(w-1)), do_queue=False)
                 # repeated wires
                 if w > 1:
-                    with self.assertRaisesRegex(ValueError, 'wires must be unique'):
+                    with pytest.raises(ValueError, message='wires must be unique'):
                         cls(*pars, wires=w*[0], do_queue=False)
 
             if n == 0:
@@ -128,40 +129,28 @@ class BasicTest(BaseTest):
             # wrong parameter types
             if cls.par_domain == 'A':
                 # params must be arrays
-                with self.assertRaisesRegex(TypeError, 'Array parameter expected'):
+                with pytest.raises(TypeError, message='Array parameter expected'):
                     cls(*n*[0.0], wires=ww, do_queue=False)
             elif cls.par_domain == 'N':
                 # params must be natural numbers
-                with self.assertRaisesRegex(TypeError, 'Natural number'):
+                with pytest.raises(TypeError, message='Natural number'):
                     cls(*n*[0.7], wires=ww, do_queue=False)
-                with self.assertRaisesRegex(TypeError, 'Natural number'):
+                with pytest.raises(TypeError, message='Natural number'):
                     cls(*n*[-1], wires=ww, do_queue=False)
             else:
                 # params must be real numbers
-                with self.assertRaisesRegex(TypeError, 'Real scalar parameter expected'):
+                with pytest.raises(TypeError, message='Real scalar parameter expected'):
                     cls(*n*[1j], wires=ww, do_queue=False)
 
 
-        for cls in openqml.ops.builtins_discrete.all_ops:
+        for cls in qm.ops.builtins_discrete.all_ops:
             op_test(cls)
 
-        for cls in openqml.ops.builtins_continuous.all_ops:
+        for cls in qm.ops.builtins_continuous.all_ops:
             op_test(cls)
 
-        for cls in openqml.expectation.builtins_discrete.all_ops:
+        for cls in qm.expectation.builtins_discrete.all_ops:
             op_test(cls)
 
-        for cls in openqml.expectation.builtins_continuous.all_ops:
+        for cls in qm.expectation.builtins_continuous.all_ops:
             op_test(cls)
-
-
-
-
-if __name__ == '__main__':
-    print('Testing OpenQML version ' + openqml.version() + ', Operation class.')
-    # run the tests in this file
-    suite = unittest.TestSuite()
-    for t in (BasicTest,):
-        ttt = unittest.TestLoader().loadTestsFromTestCase(t)
-        suite.addTests(ttt)
-    unittest.TextTestRunner().run(suite)

@@ -14,42 +14,39 @@
 """
 Unit tests for the computing gradients of quantum functions.
 """
-
-import unittest
-import logging as log
-log.getLogger()
+import pytest
 
 import autograd
 import autograd.numpy as np
 
-from defaults import openqml as qm, BaseTest
+from conftest import BaseTest
+
+import openqml as qm
 from openqml.plugins.default import frx as Rx, fry as Ry, frz as Rz
 
 def expZ(state):
     return np.abs(state[0]) ** 2 - np.abs(state[1]) ** 2
 
-hbar = 2
 mag_alphas = np.linspace(0, 1.5, 5)
 thetas = np.linspace(-2*np.pi, 2*np.pi, 8)
 sqz_vals = np.linspace(0., 1., 5)
 
-class QuadratureGradientTest(BaseTest):
+
+@pytest.fixture
+def fock_dev1s(hbar):
+    return qm.device('strawberryfields.fock', wires=1, hbar=hbar, cutoff_dim=60)
+
+
+class TestQuadratureGradient(BaseTest):
     """Tests of the automatic gradient method for circuits acting on quadratures.
     """
-    def setUp(self):
-        self.fock_dev1 = qm.device('strawberryfields.fock', wires=1, hbar=hbar, cutoff_dim=25)
-        self.fock_dev1s = qm.device('strawberryfields.fock', wires=1, hbar=hbar, cutoff_dim=60) # squeezing tests are highly sensitive to low cutoffs
-        self.fock_dev2 = qm.device('strawberryfields.fock', wires=2, hbar=hbar, cutoff_dim=10)
-        self.gaussian_dev1 = qm.device('strawberryfields.gaussian', wires=1)
-        self.gaussian_dev2 = qm.device('strawberryfields.gaussian', wires=2)
 
-    def test_rotation_gradient(self):
+    def test_rotation_gradient(self, fock_dev1, hbar, tol):
         "Tests that the automatic gradient of a phase space rotation is correct."
-        log.info('test_rotation_gradient')
 
         alpha = 0.5
 
-        @qm.qfunc(self.fock_dev1)
+        @qm.qfunc(fock_dev1)
         def circuit(y):
             qm.Displacement(alpha, 0., [0])
             qm.Rotation(y, [0])
@@ -62,15 +59,14 @@ class QuadratureGradientTest(BaseTest):
             # qfunc evalutes to hbar * alpha * cos(theta)
             manualgrad_val = - hbar * alpha * np.sin(theta)
 
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=self.tol)
+            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-    def test_beamsplitter_gradient(self):
+    def test_beamsplitter_gradient(self, fock_dev2, hbar, tol):
         "Tests that the automatic gradient of a beamsplitter is correct."
-        log.info('test_beamsplitter_gradient')
 
         alpha = 0.5
 
-        @qm.qfunc(self.fock_dev2)
+        @qm.qfunc(fock_dev2)
         def circuit(y):
             qm.Displacement(alpha, 0., [0])
             qm.Beamsplitter(y, 0, [0, 1])
@@ -83,13 +79,12 @@ class QuadratureGradientTest(BaseTest):
             # qfunc evalutes to hbar * alpha * cos(theta)
             manualgrad_val = - hbar * alpha * np.sin(theta)
 
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=self.tol)
+            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-    def test_displacement_gradient(self):
+    def test_displacement_gradient(self, fock_dev1, hbar, tol):
         "Tests that the automatic gradient of a phase space displacement is correct."
-        log.info('test_displacement_gradient')
 
-        @qm.qfunc(self.fock_dev1)
+        @qm.qfunc(fock_dev1)
         def circuit(r, phi):
             qm.Displacement(r, phi, [0])
             return qm.expectation.X(0)
@@ -103,15 +98,14 @@ class QuadratureGradientTest(BaseTest):
                 # qfunc evalutes to hbar * Re(alpha)
                 manualgrad_val = hbar * np.cos(theta)
 
-                self.assertAlmostEqual(autograd_val, manualgrad_val, delta=self.tol)
+                self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-    def test_squeeze_gradient(self):
+    def test_squeeze_gradient(self, fock_dev1s, hbar, tol):
         "Tests that the automatic gradient of a phase space squeezing is correct."
-        log.info('test_squeeze_gradient')
 
         alpha = 0.5
 
-        @qm.qfunc(self.fock_dev1s)
+        @qm.qfunc(fock_dev1s)
         def circuit(y):
             qm.Displacement(alpha, 0., [0])
             qm.Squeezing(y, 0., [0])
@@ -123,21 +117,16 @@ class QuadratureGradientTest(BaseTest):
             autograd_val = grad_fn(r)
             # qfunc evaluates to -exp(-r) * hbar * Re(alpha)
             manualgrad_val = -np.exp(-r) * hbar * alpha
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=self.tol)
+            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
 
-class QubitGradientTest(BaseTest):
+class TestQubitGradient(BaseTest):
     """Tests of the automatic gradient method for qubit gates.
     """
-    def setUp(self):
-        self.qubit_dev1 = qm.device('default.qubit', wires=1)
-        self.qubit_dev2 = qm.device('default.qubit', wires=2)
-
-    def test_RX_gradient(self):
+    def test_RX_gradient(self, qubit_dev1, tol):
         "Tests that the automatic gradient of a Pauli X-rotation is correct."
-        log.info('test_RX_gradient')
 
-        @qm.qfunc(self.qubit_dev1)
+        @qm.qfunc(qubit_dev1)
         def circuit(x):
             qm.RX(x, [0])
             return qm.expectation.PauliZ(0)
@@ -147,13 +136,12 @@ class QubitGradientTest(BaseTest):
         for theta in thetas:
             autograd_val = grad_fn(theta)
             manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=self.tol)
+            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-    def test_RY_gradient(self):
+    def test_RY_gradient(self, qubit_dev1, tol):
         "Tests that the automatic gradient of a Pauli Y-rotation is correct."
-        log.info('test_RY_gradient')
 
-        @qm.qfunc(self.qubit_dev1)
+        @qm.qfunc(qubit_dev1)
         def circuit(x):
             qm.RY(x, [0])
             return qm.expectation.PauliZ(0)
@@ -163,13 +151,12 @@ class QubitGradientTest(BaseTest):
         for theta in thetas:
             autograd_val = grad_fn(theta)
             manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=self.tol)
+            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-    def test_RZ_gradient(self):
+    def test_RZ_gradient(self, qubit_dev1, tol):
         "Tests that the automatic gradient of a Pauli Z-rotation is correct."
-        log.info('test_RZ_gradient')
 
-        @qm.qfunc(self.qubit_dev1)
+        @qm.qfunc(qubit_dev1)
         def circuit(x):
             qm.RZ(x, [0])
             return qm.expectation.PauliZ(0)
@@ -179,18 +166,17 @@ class QubitGradientTest(BaseTest):
         for theta in thetas:
             autograd_val = grad_fn(theta)
             manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=self.tol)
+            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-    def test_Rot(self):
+    def test_Rot(self, qubit_dev1, tol):
         "Tests that the automatic gradient of a arbitrary Euler-angle-parameterized gate is correct."
-        log.info('test_Rot')
 
         #@qm.qfunc(self.qubit_dev1)
         def circuit(x,y,z):
             qm.Rot(x,y,z, [0])
             return qm.expectation.PauliZ(0)
 
-        circuit = qm.QNode(circuit, self.qubit_dev1)
+        circuit = qm.QNode(circuit, qubit_dev1)
         grad_fn = autograd.grad(circuit.evaluate)
 
         eye = np.eye(3)
@@ -200,11 +186,10 @@ class QubitGradientTest(BaseTest):
             for idx in range(3):
                 onehot_idx = eye[idx]
                 manualgrad_val = (circuit(angle_inputs + np.pi / 2 * onehot_idx) - circuit(angle_inputs - np.pi / 2 * onehot_idx)) / 2
-                self.assertAlmostEqual(autograd_val[idx], manualgrad_val, delta=self.tol)
+                self.assertAlmostEqual(autograd_val[idx], manualgrad_val, delta=tol)
 
-    def test_qfunc_gradients(self):
+    def test_qfunc_gradients(self, qubit_dev2, tol):
         "Tests that the various ways of computing the gradient of a qfunc all agree."
-        log.info('test_qfunc_gradients')
 
         def circuit(x, y, z):
             qm.RX(x, [0])
@@ -216,7 +201,7 @@ class QubitGradientTest(BaseTest):
             qm.CNOT([0, 1])
             return qm.expectation.PauliZ(0)
 
-        qnode = qm.QNode(circuit, self.qubit_dev2)
+        qnode = qm.QNode(circuit, qubit_dev2)
         params = np.array([0.1, -1.6, np.pi / 5])
 
         # manual gradients
@@ -229,13 +214,12 @@ class QubitGradientTest(BaseTest):
         grad_auto = grad_fn(params)
 
         # gradients computed with different methods must agree
-        self.assertAllAlmostEqual(grad_fd1, grad_fd2, self.tol)
-        self.assertAllAlmostEqual(grad_fd1, grad_angle, self.tol)
-        self.assertAllAlmostEqual(grad_fd1, grad_auto, self.tol)
+        self.assertAllAlmostEqual(grad_fd1, grad_fd2, tol)
+        self.assertAllAlmostEqual(grad_fd1, grad_angle, tol)
+        self.assertAllAlmostEqual(grad_fd1, grad_auto, tol)
 
-    def test_hybrid_gradients(self):
+    def test_hybrid_gradients(self, qubit_dev2, tol):
         "Tests that the various ways of computing the gradient of a hybrid computation all agree."
-        log.info('test_hybrid_gradients')
 
         # input data is the first parameter
         def classifier_circuit(in_data, x):
@@ -248,7 +232,7 @@ class QubitGradientTest(BaseTest):
             qm.CNOT([0, 1])
             return qm.expectation.PauliZ(0)
 
-        classifier = qm.QNode(classifier_circuit, self.qubit_dev2)
+        classifier = qm.QNode(classifier_circuit, qubit_dev2)
 
         param = -0.1259
         in_data = np.array([-0.1, -0.88, np.exp(0.5)])
@@ -280,13 +264,12 @@ class QubitGradientTest(BaseTest):
         grad_angle = d_error(param, 'A')
 
         # gradients computed with different methods must agree
-        self.assertAllAlmostEqual(grad_fd1, grad_angle, self.tol)
-        self.assertAllAlmostEqual(grad_fd1, grad_auto, self.tol)
-        self.assertAllAlmostEqual(grad_angle, grad_auto, self.tol)
+        self.assertAllAlmostEqual(grad_fd1, grad_angle, tol)
+        self.assertAllAlmostEqual(grad_fd1, grad_auto, tol)
+        self.assertAllAlmostEqual(grad_angle, grad_auto, tol)
 
-    def test_qnode_gradient_fanout(self):
+    def test_qnode_gradient_fanout(self, qubit_dev1, tol):
         "Tests that the correct gradient is computed for qnodes which use the same parameter in multiple gates."
-        log.info('test_qnode_gradient_fanout')
 
         extra_param = 0.31
         def circuit(reused_param, other_param):
@@ -296,7 +279,7 @@ class QubitGradientTest(BaseTest):
             qm.RX(reused_param, [0])
             return qm.expectation.PauliZ(0)
 
-        f = qm.QNode(circuit, self.qubit_dev1)
+        f = qm.QNode(circuit, qubit_dev1)
         zero_state = np.array([1., 0.])
 
         for reused_p in thetas:
@@ -315,15 +298,5 @@ class QubitGradientTest(BaseTest):
                              -expZ(Rx(reused_p - np.pi / 2) @ Rz(other_p) @ Ry(reused_p) @ Rx(extra_param) @ zero_state)) / 2
                 grad_true = grad_true0 + grad_true1 # product rule
 
-                self.assertAlmostEqual(grad_eval, grad_true, delta=self.tol)
+                self.assertAlmostEqual(grad_eval, grad_true, delta=tol)
 
-
-if __name__ == '__main__':
-    print('Testing OpenQML version ' + qm.version() + ', automatic gradients.')
-    # run the tests in this file
-    suite = unittest.TestSuite()
-    for t in (QuadratureGradientTest,QubitGradientTest):
-        ttt = unittest.TestLoader().loadTestsFromTestCase(t)
-        suite.addTests(ttt)
-
-    unittest.TextTestRunner().run(suite)

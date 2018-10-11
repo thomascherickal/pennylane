@@ -14,19 +14,17 @@
 """
 Unit tests for the :mod:`openqml` utility classes :class:`ParRef`, :class:`Command`.
 """
-import unittest
-import logging as log
-log.getLogger()
-
 import numpy as np
 import numpy.random as nr
 
-from defaults import openqml, BaseTest
+from conftest import BaseTest
+
+import openqml
 from openqml.variable import Variable
 
-class BasicTest(BaseTest):
+class TestVariable(BaseTest):
     """Utility class tests."""
-    def test_variable(self):
+    def test_variable(self, tol):
         "Variable reference tests."
         n = 10
         m = nr.randn(n)  # parameter multipliers
@@ -43,7 +41,7 @@ class BasicTest(BaseTest):
         def check(par, res):
             "Apply the parameter mapping, compare with the expected result."
             temp = np.array([p.val if isinstance(p, Variable) else p for p in par])
-            self.assertAllAlmostEqual(temp, res, self.tol)
+            self.assertAllAlmostEqual(temp, res, tol)
 
         # mapping function must yield the correct parameter values
         par = [m[k] * Variable(k) for k in range(n)]
@@ -57,12 +55,3 @@ class BasicTest(BaseTest):
 
         # fixed values remain constant
         check(par_fixed, par_fixed)
-
-if __name__ == '__main__':
-    print('Testing OpenQML version ' + openqml.version() + ', utility classes.')
-    # run the tests in this file
-    suite = unittest.TestSuite()
-    for t in (BasicTest,):
-        ttt = unittest.TestLoader().loadTestsFromTestCase(t)
-        suite.addTests(ttt)
-    unittest.TextTestRunner().run(suite)
