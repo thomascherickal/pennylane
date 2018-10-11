@@ -15,17 +15,18 @@
 Unit tests for the computing gradients of quantum functions.
 """
 import pytest
+from conftest import assertAlmostEqual, assertAllAlmostEqual
 
 import autograd
 import autograd.numpy as np
 
-from conftest import BaseTest
-
 import openqml as qm
 from openqml.plugins.default import frx as Rx, fry as Ry, frz as Rz
 
+
 def expZ(state):
     return np.abs(state[0]) ** 2 - np.abs(state[1]) ** 2
+
 
 mag_alphas = np.linspace(0, 1.5, 5)
 thetas = np.linspace(-2*np.pi, 2*np.pi, 8)
@@ -37,266 +38,267 @@ def fock_dev1s(hbar):
     return qm.device('strawberryfields.fock', wires=1, hbar=hbar, cutoff_dim=60)
 
 
-class TestQuadratureGradient(BaseTest):
-    """Tests of the automatic gradient method for circuits acting on quadratures.
-    """
+def test_rotation_gradient(fock_dev1, hbar, tol):
+    "Tests that the automatic gradient of a phase space rotation is correct."
 
-    def test_rotation_gradient(self, fock_dev1, hbar, tol):
-        "Tests that the automatic gradient of a phase space rotation is correct."
+    alpha = 0.5
 
-        alpha = 0.5
+    @qm.qfunc(fock_dev1)
+    def circuit(y):
+        qm.Displacement(alpha, 0., [0])
+        qm.Rotation(y, [0])
+        return qm.expectation.X(0)
 
-        @qm.qfunc(fock_dev1)
-        def circuit(y):
-            qm.Displacement(alpha, 0., [0])
-            qm.Rotation(y, [0])
-            return qm.expectation.X(0)
+    grad_fn = autograd.grad(circuit)
 
-        grad_fn = autograd.grad(circuit)
+    for theta in thetas:
+        autograd_val = grad_fn(theta)
+        # qfunc evalutes to hbar * alpha * cos(theta)
+        manualgrad_val = - hbar * alpha * np.sin(theta)
 
+        assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
+
+
+def test_beamsplitter_gradient(fock_dev2, hbar, tol):
+    "Tests that the automatic gradient of a beamsplitter is correct."
+
+    alpha = 0.5
+
+    @qm.qfunc(fock_dev2)
+    def circuit(y):
+        qm.Displacement(alpha, 0., [0])
+        qm.Beamsplitter(y, 0, [0, 1])
+        return qm.expectation.X(0)
+
+    grad_fn = autograd.grad(circuit)
+
+    for theta in thetas:
+        autograd_val = grad_fn(theta)
+        # qfunc evalutes to hbar * alpha * cos(theta)
+        manualgrad_val = - hbar * alpha * np.sin(theta)
+
+        assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
+
+
+def test_displacement_gradient(fock_dev1, hbar, tol):
+    "Tests that the automatic gradient of a phase space displacement is correct."
+
+    @qm.qfunc(fock_dev1)
+    def circuit(r, phi):
+        qm.Displacement(r, phi, [0])
+        return qm.expectation.X(0)
+
+    grad_fn = autograd.grad(circuit)
+
+    for mag in mag_alphas:
         for theta in thetas:
-            autograd_val = grad_fn(theta)
-            # qfunc evalutes to hbar * alpha * cos(theta)
-            manualgrad_val = - hbar * alpha * np.sin(theta)
+            #alpha = mag * np.exp(1j * theta)
+            autograd_val = grad_fn(mag, theta)
+            # qfunc evalutes to hbar * Re(alpha)
+            manualgrad_val = hbar * np.cos(theta)
 
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
-
-    def test_beamsplitter_gradient(self, fock_dev2, hbar, tol):
-        "Tests that the automatic gradient of a beamsplitter is correct."
-
-        alpha = 0.5
-
-        @qm.qfunc(fock_dev2)
-        def circuit(y):
-            qm.Displacement(alpha, 0., [0])
-            qm.Beamsplitter(y, 0, [0, 1])
-            return qm.expectation.X(0)
-
-        grad_fn = autograd.grad(circuit)
-
-        for theta in thetas:
-            autograd_val = grad_fn(theta)
-            # qfunc evalutes to hbar * alpha * cos(theta)
-            manualgrad_val = - hbar * alpha * np.sin(theta)
-
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
-
-    def test_displacement_gradient(self, fock_dev1, hbar, tol):
-        "Tests that the automatic gradient of a phase space displacement is correct."
-
-        @qm.qfunc(fock_dev1)
-        def circuit(r, phi):
-            qm.Displacement(r, phi, [0])
-            return qm.expectation.X(0)
-
-        grad_fn = autograd.grad(circuit)
-
-        for mag in mag_alphas:
-            for theta in thetas:
-                #alpha = mag * np.exp(1j * theta)
-                autograd_val = grad_fn(mag, theta)
-                # qfunc evalutes to hbar * Re(alpha)
-                manualgrad_val = hbar * np.cos(theta)
-
-                self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
-
-    def test_squeeze_gradient(self, fock_dev1s, hbar, tol):
-        "Tests that the automatic gradient of a phase space squeezing is correct."
-
-        alpha = 0.5
-
-        @qm.qfunc(fock_dev1s)
-        def circuit(y):
-            qm.Displacement(alpha, 0., [0])
-            qm.Squeezing(y, 0., [0])
-            return qm.expectation.X(0)
-
-        grad_fn = autograd.grad(circuit)
-
-        for r in sqz_vals:
-            autograd_val = grad_fn(r)
-            # qfunc evaluates to -exp(-r) * hbar * Re(alpha)
-            manualgrad_val = -np.exp(-r) * hbar * alpha
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
+            assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
 
-class TestQubitGradient(BaseTest):
-    """Tests of the automatic gradient method for qubit gates.
-    """
-    def test_RX_gradient(self, qubit_dev1, tol):
-        "Tests that the automatic gradient of a Pauli X-rotation is correct."
+def test_squeeze_gradient(fock_dev1s, hbar, tol):
+    "Tests that the automatic gradient of a phase space squeezing is correct."
 
-        @qm.qfunc(qubit_dev1)
-        def circuit(x):
-            qm.RX(x, [0])
-            return qm.expectation.PauliZ(0)
+    alpha = 0.5
 
-        grad_fn = autograd.grad(circuit)
+    @qm.qfunc(fock_dev1s)
+    def circuit(y):
+        qm.Displacement(alpha, 0., [0])
+        qm.Squeezing(y, 0., [0])
+        return qm.expectation.X(0)
 
-        for theta in thetas:
-            autograd_val = grad_fn(theta)
-            manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
+    grad_fn = autograd.grad(circuit)
 
-    def test_RY_gradient(self, qubit_dev1, tol):
-        "Tests that the automatic gradient of a Pauli Y-rotation is correct."
+    for r in sqz_vals:
+        autograd_val = grad_fn(r)
+        # qfunc evaluates to -exp(-r) * hbar * Re(alpha)
+        manualgrad_val = -np.exp(-r) * hbar * alpha
+        assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-        @qm.qfunc(qubit_dev1)
-        def circuit(x):
-            qm.RY(x, [0])
-            return qm.expectation.PauliZ(0)
 
-        grad_fn = autograd.grad(circuit)
+def test_RX_gradient(qubit_dev1, tol):
+    "Tests that the automatic gradient of a Pauli X-rotation is correct."
 
-        for theta in thetas:
-            autograd_val = grad_fn(theta)
-            manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
+    @qm.qfunc(qubit_dev1)
+    def circuit(x):
+        qm.RX(x, [0])
+        return qm.expectation.PauliZ(0)
 
-    def test_RZ_gradient(self, qubit_dev1, tol):
-        "Tests that the automatic gradient of a Pauli Z-rotation is correct."
+    grad_fn = autograd.grad(circuit)
 
-        @qm.qfunc(qubit_dev1)
-        def circuit(x):
-            qm.RZ(x, [0])
-            return qm.expectation.PauliZ(0)
+    for theta in thetas:
+        autograd_val = grad_fn(theta)
+        manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
+        assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-        grad_fn = autograd.grad(circuit)
 
-        for theta in thetas:
-            autograd_val = grad_fn(theta)
-            manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
-            self.assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
+def test_RY_gradient(qubit_dev1, tol):
+    "Tests that the automatic gradient of a Pauli Y-rotation is correct."
 
-    def test_Rot(self, qubit_dev1, tol):
-        "Tests that the automatic gradient of a arbitrary Euler-angle-parameterized gate is correct."
+    @qm.qfunc(qubit_dev1)
+    def circuit(x):
+        qm.RY(x, [0])
+        return qm.expectation.PauliZ(0)
 
-        #@qm.qfunc(self.qubit_dev1)
-        def circuit(x,y,z):
-            qm.Rot(x,y,z, [0])
-            return qm.expectation.PauliZ(0)
+    grad_fn = autograd.grad(circuit)
 
-        circuit = qm.QNode(circuit, qubit_dev1)
-        grad_fn = autograd.grad(circuit.evaluate)
+    for theta in thetas:
+        autograd_val = grad_fn(theta)
+        manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
+        assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-        eye = np.eye(3)
-        for theta in thetas:
-            angle_inputs = np.array([theta, theta ** 3, np.sqrt(2) * theta])
-            autograd_val = grad_fn(angle_inputs)
-            for idx in range(3):
-                onehot_idx = eye[idx]
-                manualgrad_val = (circuit(angle_inputs + np.pi / 2 * onehot_idx) - circuit(angle_inputs - np.pi / 2 * onehot_idx)) / 2
-                self.assertAlmostEqual(autograd_val[idx], manualgrad_val, delta=tol)
 
-    def test_qfunc_gradients(self, qubit_dev2, tol):
-        "Tests that the various ways of computing the gradient of a qfunc all agree."
+def test_RZ_gradient(qubit_dev1, tol):
+    "Tests that the automatic gradient of a Pauli Z-rotation is correct."
 
-        def circuit(x, y, z):
-            qm.RX(x, [0])
-            qm.CNOT([0, 1])
-            qm.RY(-1.6, [0])
-            qm.RY(y, [1])
-            qm.CNOT([1, 0])
-            qm.RX(z, [0])
-            qm.CNOT([0, 1])
-            return qm.expectation.PauliZ(0)
+    @qm.qfunc(qubit_dev1)
+    def circuit(x):
+        qm.RZ(x, [0])
+        return qm.expectation.PauliZ(0)
 
-        qnode = qm.QNode(circuit, qubit_dev2)
-        params = np.array([0.1, -1.6, np.pi / 5])
+    grad_fn = autograd.grad(circuit)
 
-        # manual gradients
-        grad_fd1 = qnode.gradient(params, method='F', order=1)
-        grad_fd2 = qnode.gradient(params, method='F', order=2)
-        grad_angle = qnode.gradient(params, method='A')
+    for theta in thetas:
+        autograd_val = grad_fn(theta)
+        manualgrad_val = (circuit(theta + np.pi / 2) - circuit(theta - np.pi / 2)) / 2
+        assertAlmostEqual(autograd_val, manualgrad_val, delta=tol)
 
-        # automatic gradient
-        grad_fn = autograd.grad(qnode.evaluate)
-        grad_auto = grad_fn(params)
 
-        # gradients computed with different methods must agree
-        self.assertAllAlmostEqual(grad_fd1, grad_fd2, tol)
-        self.assertAllAlmostEqual(grad_fd1, grad_angle, tol)
-        self.assertAllAlmostEqual(grad_fd1, grad_auto, tol)
+def test_Rot(qubit_dev1, tol):
+    "Tests that the automatic gradient of a arbitrary Euler-angle-parameterized gate is correct."
 
-    def test_hybrid_gradients(self, qubit_dev2, tol):
-        "Tests that the various ways of computing the gradient of a hybrid computation all agree."
+    #@qm.qfunc(qubit_dev1)
+    def circuit(x,y,z):
+        qm.Rot(x,y,z, [0])
+        return qm.expectation.PauliZ(0)
 
-        # input data is the first parameter
-        def classifier_circuit(in_data, x):
-            qm.RX(in_data, [0])
-            qm.CNOT([0, 1])
-            qm.RY(-1.6, [0])
-            qm.RY(in_data, [1])
-            qm.CNOT([1, 0])
-            qm.RX(x, [0])
-            qm.CNOT([0, 1])
-            return qm.expectation.PauliZ(0)
+    circuit = qm.QNode(circuit, qubit_dev1)
+    grad_fn = autograd.grad(circuit.evaluate)
 
-        classifier = qm.QNode(classifier_circuit, qubit_dev2)
+    eye = np.eye(3)
+    for theta in thetas:
+        angle_inputs = np.array([theta, theta ** 3, np.sqrt(2) * theta])
+        autograd_val = grad_fn(angle_inputs)
+        for idx in range(3):
+            onehot_idx = eye[idx]
+            manualgrad_val = (circuit(angle_inputs + np.pi / 2 * onehot_idx) - circuit(angle_inputs - np.pi / 2 * onehot_idx)) / 2
+            assertAlmostEqual(autograd_val[idx], manualgrad_val, delta=tol)
 
-        param = -0.1259
-        in_data = np.array([-0.1, -0.88, np.exp(0.5)])
-        out_data = np.array([1.5, np.pi / 3, 0.0])
 
-        def error(p):
-            "Total square error of classifier predictions."
-            ret = 0
-            for d_in, d_out in zip(in_data, out_data):
-                #args = np.array([d_in, p])
-                square_diff = (classifier(d_in, p) - d_out) ** 2
-                ret = ret + square_diff
-            return ret
+def test_qfunc_gradients(qubit_dev2, tol):
+    "Tests that the various ways of computing the gradient of a qfunc all agree."
 
-        def d_error(p, grad_method):
-            "Gradient of error, computed manually."
-            ret = 0
-            for d_in, d_out in zip(in_data, out_data):
-                args = np.array([d_in, p])
-                diff = (classifier(args) - d_out)
-                ret = ret + 2 * diff * classifier.gradient(args, which=[1], method=grad_method)
-            return ret
+    def circuit(x, y, z):
+        qm.RX(x, [0])
+        qm.CNOT([0, 1])
+        qm.RY(-1.6, [0])
+        qm.RY(y, [1])
+        qm.CNOT([1, 0])
+        qm.RX(z, [0])
+        qm.CNOT([0, 1])
+        return qm.expectation.PauliZ(0)
 
-        y0 = error(param)
-        grad = autograd.grad(error)
-        grad_auto = grad([param])
+    qnode = qm.QNode(circuit, qubit_dev2)
+    params = np.array([0.1, -1.6, np.pi / 5])
 
-        grad_fd1 = d_error(param, 'F')
-        grad_angle = d_error(param, 'A')
+    # manual gradients
+    grad_fd1 = qnode.gradient(params, method='F', order=1)
+    grad_fd2 = qnode.gradient(params, method='F', order=2)
+    grad_angle = qnode.gradient(params, method='A')
 
-        # gradients computed with different methods must agree
-        self.assertAllAlmostEqual(grad_fd1, grad_angle, tol)
-        self.assertAllAlmostEqual(grad_fd1, grad_auto, tol)
-        self.assertAllAlmostEqual(grad_angle, grad_auto, tol)
+    # automatic gradient
+    grad_fn = autograd.grad(qnode.evaluate)
+    grad_auto = grad_fn(params)
 
-    def test_qnode_gradient_fanout(self, qubit_dev1, tol):
-        "Tests that the correct gradient is computed for qnodes which use the same parameter in multiple gates."
+    # gradients computed with different methods must agree
+    assertAllAlmostEqual(grad_fd1, grad_fd2, tol)
+    assertAllAlmostEqual(grad_fd1, grad_angle, tol)
+    assertAllAlmostEqual(grad_fd1, grad_auto, tol)
 
-        extra_param = 0.31
-        def circuit(reused_param, other_param):
-            qm.RX(extra_param, [0])
-            qm.RY(reused_param, [0])
-            qm.RZ(other_param, [0])
-            qm.RX(reused_param, [0])
-            return qm.expectation.PauliZ(0)
 
-        f = qm.QNode(circuit, qubit_dev1)
-        zero_state = np.array([1., 0.])
+def test_hybrid_gradients(qubit_dev2, tol):
+    "Tests that the various ways of computing the gradient of a hybrid computation all agree."
 
-        for reused_p in thetas:
-            reused_p = reused_p ** 3 / 19
-            for other_p in thetas:
-                other_p = other_p ** 2 / 11
+    # input data is the first parameter
+    def classifier_circuit(in_data, x):
+        qm.RX(in_data, [0])
+        qm.CNOT([0, 1])
+        qm.RY(-1.6, [0])
+        qm.RY(in_data, [1])
+        qm.CNOT([1, 0])
+        qm.RX(x, [0])
+        qm.CNOT([0, 1])
+        return qm.expectation.PauliZ(0)
 
-                # autograd gradient
-                grad = autograd.grad(f)
-                grad_eval = grad(reused_p, other_p)
+    classifier = qm.QNode(classifier_circuit, qubit_dev2)
 
-                # manual gradient
-                grad_true0 = (expZ(Rx(reused_p) @ Rz(other_p) @ Ry(reused_p + np.pi / 2) @ Rx(extra_param) @ zero_state) \
-                             -expZ(Rx(reused_p) @ Rz(other_p) @ Ry(reused_p - np.pi / 2) @ Rx(extra_param) @ zero_state)) / 2
-                grad_true1 = (expZ(Rx(reused_p + np.pi / 2) @ Rz(other_p) @ Ry(reused_p) @ Rx(extra_param) @ zero_state) \
-                             -expZ(Rx(reused_p - np.pi / 2) @ Rz(other_p) @ Ry(reused_p) @ Rx(extra_param) @ zero_state)) / 2
-                grad_true = grad_true0 + grad_true1 # product rule
+    param = -0.1259
+    in_data = np.array([-0.1, -0.88, np.exp(0.5)])
+    out_data = np.array([1.5, np.pi / 3, 0.0])
 
-                self.assertAlmostEqual(grad_eval, grad_true, delta=tol)
+    def error(p):
+        "Total square error of classifier predictions."
+        ret = 0
+        for d_in, d_out in zip(in_data, out_data):
+            #args = np.array([d_in, p])
+            square_diff = (classifier(d_in, p) - d_out) ** 2
+            ret = ret + square_diff
+        return ret
 
+    def d_error(p, grad_method):
+        "Gradient of error, computed manually."
+        ret = 0
+        for d_in, d_out in zip(in_data, out_data):
+            args = np.array([d_in, p])
+            diff = (classifier(args) - d_out)
+            ret = ret + 2 * diff * classifier.gradient(args, which=[1], method=grad_method)
+        return ret
+
+    y0 = error(param)
+    grad = autograd.grad(error)
+    grad_auto = grad([param])
+
+    grad_fd1 = d_error(param, 'F')
+    grad_angle = d_error(param, 'A')
+
+    # gradients computed with different methods must agree
+    assertAllAlmostEqual(grad_fd1, grad_angle, tol)
+    assertAllAlmostEqual(grad_fd1, grad_auto, tol)
+    assertAllAlmostEqual(grad_angle, grad_auto, tol)
+
+
+def test_qnode_gradient_fanout(qubit_dev1, tol):
+    "Tests that the correct gradient is computed for qnodes which use the same parameter in multiple gates."
+
+    extra_param = 0.31
+    def circuit(reused_param, other_param):
+        qm.RX(extra_param, [0])
+        qm.RY(reused_param, [0])
+        qm.RZ(other_param, [0])
+        qm.RX(reused_param, [0])
+        return qm.expectation.PauliZ(0)
+
+    f = qm.QNode(circuit, qubit_dev1)
+    zero_state = np.array([1., 0.])
+
+    for reused_p in thetas:
+        reused_p = reused_p ** 3 / 19
+        for other_p in thetas:
+            other_p = other_p ** 2 / 11
+
+            # autograd gradient
+            grad = autograd.grad(f)
+            grad_eval = grad(reused_p, other_p)
+
+            # manual gradient
+            grad_true0 = (expZ(Rx(reused_p) @ Rz(other_p) @ Ry(reused_p + np.pi / 2) @ Rx(extra_param) @ zero_state) \
+                         -expZ(Rx(reused_p) @ Rz(other_p) @ Ry(reused_p - np.pi / 2) @ Rx(extra_param) @ zero_state)) / 2
+            grad_true1 = (expZ(Rx(reused_p + np.pi / 2) @ Rz(other_p) @ Ry(reused_p) @ Rx(extra_param) @ zero_state) \
+                         -expZ(Rx(reused_p - np.pi / 2) @ Rz(other_p) @ Ry(reused_p) @ Rx(extra_param) @ zero_state)) / 2
+            grad_true = grad_true0 + grad_true1 # product rule
+
+            assertAlmostEqual(grad_eval, grad_true, delta=tol)

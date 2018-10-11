@@ -75,6 +75,65 @@ def gaussian_dev2():
     return qm.device('strawberryfields.gaussian', wires=2)
 
 
+def assertEqual( first, second):
+    """Replaces unittest TestCase.assertEqual"""
+    assert first == second
+
+
+def assertAlmostEqual(first, second, delta):
+    """Replaces unittest TestCase.assertEqual"""
+    assert np.abs(first - second) <= delta
+
+
+def assertTrue(first):
+    """Replaces unittest TestCase.assertTrue"""
+    assert first
+
+
+def assertFalse(first):
+    """Replaces unittest TestCase.assertFalse"""
+    assert not first
+
+
+def assertAllAlmostEqual(first, second, delta, msg=None):
+    """
+    Like assertAlmostEqual, but works with arrays. All the corresponding elements have to be almost equal.
+    """
+    if isinstance(first, tuple):
+        # check each element of the tuple separately (needed for when the tuple elements are themselves batches)
+        if np.all([np.all(first[idx] == second[idx]) for idx, _ in enumerate(first)]):
+            return
+        if np.all([np.all(np.abs(first[idx] - second[idx])) <= delta for idx, _ in enumerate(first)]):
+            return
+    else:
+        if np.all(first == second):
+            return
+        if np.all(np.abs(first - second) <= delta):
+            return
+    assert False, '{} != {} within {} delta'.format(first, second, delta)
+
+
+def assertAllEqual(first, second, msg=None):
+    """
+    Like assertEqual, but works with arrays. All the corresponding elements have to be equal.
+    """
+    return assertAllAlmostEqual(first, second, delta=0.0, msg=msg)
+
+
+def assertAllTrue(value, msg=None):
+    """
+    Like assertTrue, but works with arrays. All the corresponding elements have to be True.
+    """
+    return assertTrue(np.all(value))
+
+
+def assertAlmostLess(first, second, delta, msg=None):
+    """
+    Like assertLess, but with a tolerance.
+    """
+    return assertLess(first, second+delta, msg=msg)
+
+
 class BaseTest:
     """Default base test class"""
 
