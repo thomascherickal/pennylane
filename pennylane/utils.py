@@ -93,13 +93,14 @@ def _unflatten(flat, model):
             else:
                 return (), flat
 
-        # Now we know that model is not just iterable, but can actually be indexed.
+        # Now we know that model is not just iterable, but has length at least 1 and can actually be indexed.
 
         # For np.arrays there is a special shortcut if they are not yagged
         # We try this after some sanity checks and hope for the best
         if isinstance(model, np.ndarray):
             size = model.size
-            if size == np.prod(model.shape) and np.all(x.size == model[0].size for x in model):
+            #if size == np.prod(model.shape) and np.all([isinstance(x, np.ndarray) and x.shape == model[0].shape for x in model]):
+            if size == np.prod(model.shape) and np.all([isinstance(x, np.ndarray) and x.shape == model[0].shape for x in model]):
                 return np.array(flat)[:size].reshape(model.shape), flat[size:]
 
         # As we have to unflatten depth-first, we need to keep track of the "tail"
@@ -175,5 +176,5 @@ def unflatten(flat, model):
     # pylint:disable=len-as-condition
     res, tail = _unflatten(np.asarray(flat), model)
     if len(tail) != 0:
-        raise ValueError('Flattened iterable has more elements than the model. tail='+str(tail))
+        raise ValueError('Flattened iterable has more elements than the model. tail='+str(tail)+' model='+str(model))
     return res
