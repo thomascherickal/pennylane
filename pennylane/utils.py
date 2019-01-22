@@ -91,17 +91,18 @@ def _unflatten(flat, model):
 
         # Now we know that model is not just iterable, but has length at least 1 and can actually be indexed.
 
-        # For np.arrays there is a special shortcut if they are not yagged
-        # We try this after some sanity checks and hope for the best
         if isinstance(model, np.ndarray):
+            # For np.arrays there is a special shortcut if they are not yagged
             size = model.size
-            if size == np.prod(model.shape) and np.all([isinstance(x, np.ndarray) and x.shape == model[0].shape for x in model]):
-                return np.array(flat)[:size].reshape(model.shape), flat[size:]
+            #if size == np.prod(model.shape) and np.all([isinstance(x, np.ndarray) and x.shape == model[0].shape for x in model]): # I suppose, ultimately, the unflattening via reshaping should be done conditional on this but for testing I do it always
+            #return np.array(flat)[:size].reshape(model.shape), flat[size:] # with this line commented out, many of the existing tests fail, but with it commented in, many of the tests in test_utils.py fails. Somehow, it appears, during this reshaping process, Variables are replaced by their parameter values. I can see that, because with this line enabled, my unflatten() sometimes returns np.arrays of floats or ints, whereas if I treat the same combination of flat and model without this line as an iterable, then this function is returning np.arrays of Variables!
+
 
         # As we have to unflatten depth-first, we need to keep track of the "tail"
         # of not yet used elements but also want to yield from recursive calls of
-        # _unflatten(). The easies way to do this is via a class that keeps track
-        # of the "global" state of the tail while yielding:
+        # _unflatten(). The cleanest way to do this is via a class that keeps track
+        # of the "global" state of the tail while yielding and also decides what
+        # the resulting dtype should be:
         class Unflattener:
             def __init__(self, flat, model):
                 self.flat = flat
@@ -127,6 +128,7 @@ def _unflatten(flat, model):
         unflattener = Unflattener(flat, model)
 
         if isinstance(model, np.ndarray):
+            # the following two lines should be equivalent, but the latter leads to errors sometimes
             return np.array(list(unflattener.gen()), dtype=unflattener.dtype()), unflattener.tail()
             #return np.fromiter(unflattener.gen(), dtype=unflattener.dtype()), unflattener.tail()
         else:
@@ -141,7 +143,7 @@ def unflatten(flat, model):
     # pylint:disable=len-as-condition
     res, tail = _unflatten(np.asarray(flat), model)
 
-    print("unflatten called with\n model="+str(model)+" model[o] of type="+(str(type(model[0])) if isinstance(model, tuple) and len(model) >=1 else "model is not a tuple")+"\n  flat="+str(flat)+"\nreturn="+str(res)+"\n")
+    print("unflatten called with\n model="+str(model)+"\n  flat="+str(flat)+"\nreturn="+str(res)+"\n")
     if len(tail) != 0:
-        raise ValueError('Flattened iterable has more elements than the model. tail='+str(tail)+' model='+str(model))
+        raise ValueError('Flattened iterable has more elements than the model.')
     return res

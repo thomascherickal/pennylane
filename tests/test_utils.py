@@ -62,8 +62,7 @@ crazy_arrays = [
     ([0, 1, 2, 3, 4], [[0, 1], [(2, 3), 4]]),
     ([0, 1, 2, 3, 4], [[0, 1], [(2, 3), 4]]),
     (np.array(range(17)), [np.array([np.array([0]), np.array([1, 2, 3]), np.array([4, 5])]), 6, np.array([7, 8]), (9, 10), [11, (12, np.array(13)), np.array([(14, ), 15, np.array(16)])]]),
-
-    #([0, 1, 2], np.array([np.array([0, 1], dtype=object), 2])),
+    ([0, 1, 2], np.array([np.array([0, 1], dtype=object), 2])),
     #(np.array([0, 1, 2, 3, 4]), np.array([[0, 1], [(2, 3), 4]])), #this is not correctly unflattened, but can not even be created like that in standard numpy, somehow autograd numpy allows this?!
 ]
 
