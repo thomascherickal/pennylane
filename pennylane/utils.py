@@ -76,17 +76,13 @@ def _unflatten(flat, model):
         (other, array): first elements of flat arranged into the nested
         structure of model, unused elements of flat
     """
-    print("_unflatten("+str(flat)+", "+str(model)+")")
     if isinstance(model, (numbers.Number, Variable)) and not isinstance(model, collections.Iterable):
-        print("branch: 0")
         return flat[0], flat[1:]
     elif isinstance(model, collections.Iterable):
-        print("branch 1")
         if isinstance(model, np.ndarray):
             l = model.shape[0] if model.shape != () else 0
         else:
             l = len(model)
-        print("l="+str(l))
         if l == 0: #l=0 can only happen for single element np.arrays such as np.array(4) and for empty tuples
             if isinstance(model, np.ndarray):
                 return np.array(flat[0], dtype=model.dtype), flat[1:]
@@ -99,7 +95,6 @@ def _unflatten(flat, model):
         # We try this after some sanity checks and hope for the best
         if isinstance(model, np.ndarray):
             size = model.size
-            #if size == np.prod(model.shape) and np.all([isinstance(x, np.ndarray) and x.shape == model[0].shape for x in model]):
             if size == np.prod(model.shape) and np.all([isinstance(x, np.ndarray) and x.shape == model[0].shape for x in model]):
                 return np.array(flat)[:size].reshape(model.shape), flat[size:]
 
@@ -121,7 +116,6 @@ def _unflatten(flat, model):
                     yield res
 
             def tail(self):
-                print("self.flat="+str(self.flat))
                 return self.flat
 
             def dtype(self):
@@ -133,39 +127,10 @@ def _unflatten(flat, model):
         unflattener = Unflattener(flat, model)
 
         if isinstance(model, np.ndarray):
-            #return np.array(list(unflattener.gen()), dtype=unflattener.dtype()), unflattener.tail()
-            return np.fromiter(unflattener.gen(), dtype=unflattener.dtype()), unflattener.tail()
+            return np.array(list(unflattener.gen()), dtype=unflattener.dtype()), unflattener.tail()
+            #return np.fromiter(unflattener.gen(), dtype=unflattener.dtype()), unflattener.tail()
         else:
             return (type(model))(unflattener.gen()), unflattener.tail()
-    else:
-        raise TypeError('Unsupported type in the model: {}'.format(type(model)))
-
-
-def _unflatten_old(flat, model):
-    """Restores an arbitrary nested structure from a flattened iterable.
-
-    See also :func:`_flatten`.
-
-    Args:
-        flat (array): 1D array of items
-        model (array, Iterable, Number): model nested structure
-
-    Returns:
-        (other, array): first elements of flat arranged into the nested
-        structure of model, unused elements of flat
-    """
-    if isinstance(model, np.ndarray):
-        idx = model.size
-        res = np.array(flat)[:idx].reshape(model.shape)
-        return res, flat[idx:]
-    elif isinstance(model, collections.Iterable):
-        res = []
-        for x in model:
-            val, flat = _unflatten(flat, x)
-            res.append(val)
-        return res, flat
-    elif isinstance(model, (numbers.Number, Variable)):
-        return flat[0], flat[1:]
     else:
         raise TypeError('Unsupported type in the model: {}'.format(type(model)))
 
@@ -175,6 +140,8 @@ def unflatten(flat, model):
     """
     # pylint:disable=len-as-condition
     res, tail = _unflatten(np.asarray(flat), model)
+
+    print("unflatten called with\n model="+str(model)+" model[o] of type="+(str(type(model[0])) if isinstance(model, tuple) and len(model) >=1 else "model is not a tuple")+"\n  flat="+str(flat)+"\nreturn="+str(res)+"\n")
     if len(tail) != 0:
         raise ValueError('Flattened iterable has more elements than the model. tail='+str(tail)+' model='+str(model))
     return res
