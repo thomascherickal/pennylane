@@ -245,6 +245,21 @@ class Operation(abc.ABC):
         """
         return self._grad_recipe
 
+    @property
+    def generator(self):
+        r"""Generator of the operation.
+
+        For example, if :math:`U(\theta)=e^{i\theta H}`, then
+        :math:`H` is the generator of operator :math:`U(\theta)`.
+
+        This property should be set to an existing PennyLane
+        operation or expectation value class that acts as the
+        generator of the current operation.
+
+        Default is ``None``, indicating the operation has no generator.
+        """
+        return None
+
     @grad_recipe.setter
     def grad_recipe(self, value):
         """Setter for the grad_recipe property"""
