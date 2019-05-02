@@ -43,6 +43,7 @@ class QGTOptimizer:
         self._stepsize = stepsize
         self.metric_tensor = None
         self.tol = tol
+        self.qnodes = []
 
     def step(self, objective_fn, x, qnodes=None):
         """Update x with one step of the optimizer.
@@ -84,7 +85,7 @@ class QGTOptimizer:
             if hasattr(objective_fn, 'construct_subcircuits'):
                 # objective function is the qnode!
                 objective_fn.construct_subcircuits([x])
-                qnodes = [objective_fn]
+                self.qnodes = [objective_fn]
             else:
                 # objective function is a classical node
 
@@ -104,15 +105,19 @@ class QGTOptimizer:
                     except AttributeError:
                         raise ValueError("Item {} in list of provided QNodes is not a QNode.".format(q))
 
+                self.qnodes = qnodes
+
         # calling the gradient function will implicitly
         # evaluate the subcircuit expectations
         g = autograd.grad(objective_fn)(x)  # pylint: disable=no-value-for-parameter
 
         if self.metric_tensor is None:
-            # calculate metric tensor elements for each qnode
-            metric_tensor = [np.zeros_like(x.flatten())]*len(qnodes)
+            # metric tensor has not already been previously calculated.
+            # calculate metric tensor elements for each qnode, and verify
+            # they are identical.
+            metric_tensor = [np.zeros_like(x.flatten())]*len(self.qnodes)
 
-            for idx, q in enumerate(qnodes):
+            for idx, q in enumerate(self.qnodes):
                 for i in range(len(x.flatten())):
                     # evaluate metric tensor diagonals
                     # Negative occurs due to generator convention
@@ -130,6 +135,18 @@ class QGTOptimizer:
 
             # since all metric tensors are identical, just keep the first one
             self.metric_tensor = metric_tensor[0]
+        else:
+            # metric tensor has already been previously calculated.
+            # we now know they are all identical for each qnode, so we can
+            # just use the first qnodes subcircuits to save time
+
+            for i in range(len(x.flatten())):
+                # evaluate metric tensor diagonals
+                # Negative occurs due to generator convention
+                expval = -self.qnodes[0].subcircuits[i]['result']
+
+                # calculate variance
+                self.metric_tensor[i] = expval - expval ** 2
 
         return g
 
