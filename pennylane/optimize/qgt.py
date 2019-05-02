@@ -166,6 +166,8 @@ class QGTOptimizer:
         x_flat = _flatten(x)
 
         # inverse metric tensor
+        # note: in the cases where np.abs(self.metric_tensor) > self.tol, we
+        # should raise a warning to let the user know that tol should be reduced
         G_inv = np.where(np.abs(self.metric_tensor) > self.tol, 1/self.metric_tensor, 0)
 
         x_new_flat = [e - self._stepsize * g * d for e, g, d in zip(x_flat, G_inv, grad_flat)]
