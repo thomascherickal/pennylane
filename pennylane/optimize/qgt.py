@@ -124,7 +124,7 @@ class QGTOptimizer:
                     expval = -q.subcircuits[i]['result']
 
                     # calculate variance
-                    metric_tensor[idx][i] = expval - expval ** 2
+                    metric_tensor[idx][i] = 0.25 * (1 - expval ** 2)
 
                 # verify metric tensor is the same as previous metric tensor
                 same_tensor = np.allclose(metric_tensor[idx], metric_tensor[idx-1])
@@ -146,7 +146,7 @@ class QGTOptimizer:
                 expval = -self.qnodes[0].subcircuits[i]['result']
 
                 # calculate variance
-                self.metric_tensor[i] = expval - expval ** 2
+                self.metric_tensor[i] = 0.25 * (1 - expval ** 2)
 
         return g
 
