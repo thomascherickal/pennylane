@@ -384,7 +384,7 @@ class QNode:
 
                 # current operation
                 curr_op = self.ops[op_idx]
-                gen = curr_op.generator
+                gen, scale = curr_op.generator
                 wires = curr_op._wires # pylint: disable=protected-access
 
                 if gen is None:
@@ -404,7 +404,7 @@ class QNode:
                                                "has no corresponding expectation value".format(gen))
 
                 # add subcircuit for param to the dictionary
-                self.subcircuits[param_idx] = {'queue': queue, 'expval': [expval], 'result': None}
+                self.subcircuits[param_idx] = {'queue': queue, 'expval': [expval], 'result': None, 'scale': scale}
 
     def _op_successors(self, o_idx, only='G'):
         """Successors of the given operation in the quantum circuit.
@@ -573,7 +573,7 @@ class QNode:
             # execute any constructed subcircuits
             for _, circuit in self.subcircuits.items():
                 self.device.reset()
-                circuit['result'] = self.device.execute(circuit['queue'], circuit['expval'])
+                circuit['result'] = circuit['scale']*self.device.execute(circuit['queue'], circuit['expval'])
 
         return self.output_type(ret)
 

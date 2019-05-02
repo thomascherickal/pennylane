@@ -235,7 +235,7 @@ class RX(Operation):
     num_wires = 1
     par_domain = 'R'
     grad_method = 'A'
-    generator = PauliX
+    generator = [PauliX, 1/2]
 
 
 class RY(Operation):
@@ -261,7 +261,7 @@ class RY(Operation):
     num_wires = 1
     par_domain = 'R'
     grad_method = 'A'
-    generator = PauliY
+    generator = [PauliY, 1/2]
 
 
 class RZ(Operation):
@@ -287,7 +287,7 @@ class RZ(Operation):
     num_wires = 1
     par_domain = 'R'
     grad_method = 'A'
-    generator = PauliZ
+    generator = [PauliZ, 1/2]
 
 
 class PhaseShift(Operation):

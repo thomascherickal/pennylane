@@ -249,12 +249,22 @@ class Operation(abc.ABC):
     def generator(self):
         r"""Generator of the operation.
 
-        For example, if :math:`U(\theta)=e^{i\theta H}`, then
-        :math:`H` is the generator of operator :math:`U(\theta)`.
+        A length-2 list ``[generator, scaling_factor]``, where
 
-        This property should be set to an existing PennyLane
-        operation or expectation value class that acts as the
-        generator of the current operation.
+        * ``generator`` is an existing PennyLane
+          operation class or :math:`2\times 2` Hermitian array
+          that acts as the generator of the current operation
+
+        * ``scaling_factor`` represents a scaling factor applied
+          to the generator operation
+
+        For example, if :math:`U(\theta)=e^{i0.7\theta \sigma_x}`, then
+        :math:`\sigma_x`, with scaling factor :math:`s`, is the generator
+        of operator :math:`U(\theta)`:
+
+        .. code-block:: python
+
+            generator = [PauliX, 0.7]
 
         Default is ``None``, indicating the operation has no generator.
         """

@@ -17,67 +17,119 @@ import autograd.numpy as np
 
 from pennylane.utils import _flatten, unflatten
 
-from .gradient_descent import GradientDescentOptimizer
 
-
-class QGTOptimizer(GradientDescentOptimizer):
+class QGTOptimizer:
     r"""Optimizer with adaptive learning rate.
+
+    Because this optimizer performs quantum evaluations to determine
+    the learning rate, either:
+
+    * The objective function must be a QNode, or
+
+    * If the objective function is not a QNode, all QNode dependencies of
+      the objective function **must be provided**.
 
     .. note::
 
-        This optimizer **only supports single QNodes** as objective functions.
+        Currently, we only support the use-case where all provided
+        QNode dependencies contain the same circuit ansatz (but may
+        differ in expectation value).
 
     Args:
         stepsize (float): the user-defined stepsize parameter :math:`\eta`
         tol (float): tolerance used for inverse
     """
     def __init__(self, stepsize=0.01, tol=1e-6):
-        super().__init__(stepsize)
+        self._stepsize = stepsize
         self.metric_tensor = None
         self.tol = tol
 
-    def compute_grad(self, objective_fn, x, grad_fn=None):
-        r"""Compute gradient of the QNode at the point x.
+    def step(self, objective_fn, x, qnodes=None):
+        """Update x with one step of the optimizer.
 
         Args:
-            objective_fn (QNode): the QNode for optimization
+            objective_fn (Union[function, QNode]): the objective function for optimization
+            qnodes (List[QNode]): list of QNodes that the objective function depends on.
+                Must be provided if ``objective_fn`` is not a QNode.
+            x (array): NumPy array containing the current values of the variables to be updated
+
+        Returns:
+            array: the new variable values :math:`x^{(t+1)}`
+        """
+
+        g = self.compute_grad(objective_fn, x, qnodes=qnodes)
+
+        x_out = self.apply_grad(g, x)
+
+        return x_out
+
+    def compute_grad(self, objective_fn, x, qnodes=None):
+        r"""Compute gradient of the objective function at the point x.
+
+        Args:
+            objective_fn (Union[function, QNode]): the objective function for optimization
+            qnodes (List[QNode]): list of QNodes that the objective function depends on.
+                Must be provided if ``objective_fn`` is not a QNode.
             x (array): NumPy array containing the current values of the variables to be updated
 
         Returns:
             array: NumPy array containing the gradient :math:`\nabla f(x^{(t)})`
         """
-        if grad_fn is not None:
-            # Maybe this should be a warning instead, rather than an exception
-            raise ValueError("QGTOptimizer must not be passed a gradient function.")
-
         if self.metric_tensor is None:
             # if the metric tensor has not been calculated,
             # first we must construct the subcircuits before
             # we call the gradient function
-            try:
-                # Note: we pass the parameters 'x' to this method,
-                # but the values themselves are not used.
-                # Rather, they are simply needed for the JIT
-                # circuit construction, to determine expected parameter shapes.
+
+            # check if the objective function is a QNode
+            if hasattr(objective_fn, 'construct_subcircuits'):
+                # objective function is the qnode!
                 objective_fn.construct_subcircuits([x])
-            except AttributeError:
-                raise ValueError("The objective_fn must be a QNode.")
+                qnodes = [objective_fn]
+            else:
+                # objective function is a classical node
+
+                if qnodes is None:
+                    raise ValueError("As the provided objective function is not a QNode, "
+                                     "the qnode argument must be provided, containing a "
+                                     "list of all QNodes the objective function depends on.")
+
+                # use the user provided qnode dependencies
+                for q in qnodes:
+                    try:
+                        # Note: we pass the parameters 'x' to this method,
+                        # but the values themselves are not used.
+                        # Rather, they are simply needed for the JIT
+                        # circuit construction, to determine expected parameter shapes.
+                        q.construct_subcircuits([x])
+                    except AttributeError:
+                        raise ValueError("Item {} in list of provided QNodes is not a QNode.".format(q))
 
         # calling the gradient function will implicitly
         # evaluate the subcircuit expectations
         g = autograd.grad(objective_fn)(x)  # pylint: disable=no-value-for-parameter
 
         if self.metric_tensor is None:
-            # calculate metric tensor elements
-            self.metric_tensor = np.zeros_like(x.flatten())
+            # calculate metric tensor elements for each qnode
+            metric_tensor = [np.zeros_like(x.flatten())]*len(qnodes)
 
-            for i in range(len(x.flatten())):
-                # evaluate metric tensor diagonals
-                # Negative occurs due to generator convention
-                expval = -objective_fn.subcircuits[i]['result']
+            for idx, q in enumerate(qnodes):
+                for i in range(len(x.flatten())):
+                    # evaluate metric tensor diagonals
+                    # Negative occurs due to generator convention
+                    expval = -q.subcircuits[i]['result']
 
-                # calculate variance
-                self.metric_tensor[i] = 0.5 * expval - 0.25 * expval ** 2
+                    # calculate variance
+                    metric_tensor[idx][i] = expval - expval ** 2
+
+                # verify metric tensor is the same as previous metric tensor
+                same_tensor = np.allclose(metric_tensor[idx], metric_tensor[idx-1])
+
+                if not same_tensor:
+                    # stop the loop and raise an exception
+                    raise ValueError("QNodes containing different circuits currently not supported")
+
+            # since all metric tensors are identical, just keep the first one
+            self.metric_tensor = metric_tensor[0]
 
         return g
 
