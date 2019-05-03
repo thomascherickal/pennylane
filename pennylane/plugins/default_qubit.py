@@ -367,10 +367,13 @@ class DefaultQubit(Device):
         Returns:
           float: expectation value :math:`\expect{A} = \bra{\psi}A\ket{\psi}`
         """
-        if A.shape != (2, 2):
-            raise ValueError('2x2 matrix required.')
+        if A.shape == (2, 2):
+            A = self.expand_one(A, wires)
+        elif A.shape == (4, 4):
+            A = self.expand_two(A, wires)
+        else:
+            raise ValueError('Only 1 or 2 wire expectation values supported.')
 
-        A = self.expand_one(A, wires)
         expectation = np.vdot(self._state, A @ self._state)
 
         if np.abs(expectation.imag) > tolerance:

@@ -39,6 +39,13 @@ U2 = np.array([[-0.07843244-3.57825948e-01j, 0.71447295-5.38069384e-02j, 0.20949
                [-0.09686189-3.15085273e-01j, -0.53241387-1.99491763e-01j, 0.56928622+3.97704398e-01j, -0.28671074-6.01574497e-02j]])
 
 
+U3 = np.array([[ 0.15158097+0.16589184j,  0.16749549+0.13298464j, -0.2419211 -0.55479753j,  0.15423748+0.53980902j, -0.12887772+0.45348086j],
+               [-0.25884909+0.05126751j, -0.32406293+0.61310834j, -0.09327685+0.27649162j, -0.24622782+0.09365376j, 0.38894942+0.37897383j],
+               [-0.65028999+0.04063906j,  0.15914846-0.43338415j, 0.26458866-0.25518008j,  0.02025167-0.07088196j, 0.37563453+0.28400992j],
+               [-0.15384413-0.33050924j,  0.1403724 +0.40389383j, -0.2556051 -0.57888013j, -0.08722715-0.45846372j, 0.06822978-0.24773366j],
+               [ 0.2093349 -0.52784261j, -0.10626928-0.25702894j, -0.05286128-0.10085228j, -0.42990045+0.45538063j, 0.39507089-0.19741231j]])
+
+
 H = np.array([[1.02789352, 1.61296440-0.3498192j],
               [1.61296440+0.3498192j, 1.23920938+0j]])
 
@@ -421,9 +428,9 @@ class TestDefaultQubitDevice(BaseTest):
             # verify the device is now in the expected state
             self.assertAllAlmostEqual(res, expected_out, delta=self.tol)
 
-            # text exception raised if matrix is not 2x2
-            with self.assertRaisesRegex(ValueError, "2x2 matrix required"):
-                self.dev.ev(U2, [0])
+            # text exception raised if matrix is for 3 or more wires
+            with self.assertRaisesRegex(ValueError, "Only 1 or 2 wire expectation values supported."):
+                self.dev.ev(U3, [0])
 
             # text warning raised if matrix is complex
             with self.assertLogs(level='WARNING') as l:
