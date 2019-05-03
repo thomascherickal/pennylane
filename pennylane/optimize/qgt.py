@@ -84,8 +84,14 @@ class QGTOptimizer:
             # check if the objective function is a QNode
             if hasattr(objective_fn, 'construct_subcircuits'):
                 # objective function is the qnode!
+
+                # Note: we pass the parameters 'x' to this method,
+                # but the values themselves are not used.
+                # Rather, they are simply needed for the JIT
+                # circuit construction, to determine expected parameter shapes.
                 objective_fn.construct_subcircuits([x])
                 self.qnodes = [objective_fn]
+
             else:
                 # objective function is a classical node
 
@@ -97,10 +103,6 @@ class QGTOptimizer:
                 # use the user provided qnode dependencies
                 for q in qnodes:
                     try:
-                        # Note: we pass the parameters 'x' to this method,
-                        # but the values themselves are not used.
-                        # Rather, they are simply needed for the JIT
-                        # circuit construction, to determine expected parameter shapes.
                         q.construct_subcircuits([x])
                     except AttributeError:
                         raise ValueError("Item {} in list of provided QNodes is not a QNode.".format(q))
@@ -120,11 +122,7 @@ class QGTOptimizer:
             for idx, q in enumerate(self.qnodes):
                 for i in range(len(x.flatten())):
                     # evaluate metric tensor diagonals
-                    # Negative occurs due to generator convention
-                    expval = -q.subcircuits[i]['result']
-
-                    # calculate variance
-                    metric_tensor[idx][i] = 0.25 * (1 - expval ** 2)
+                    metric_tensor[idx][i] = self.compute_variance(q.subcircuits[i])
 
                 # verify metric tensor is the same as previous metric tensor
                 same_tensor = np.allclose(metric_tensor[idx], metric_tensor[idx-1])
@@ -142,13 +140,36 @@ class QGTOptimizer:
 
             for i in range(len(x.flatten())):
                 # evaluate metric tensor diagonals
-                # Negative occurs due to generator convention
-                expval = -self.qnodes[0].subcircuits[i]['result']
-
-                # calculate variance
-                self.metric_tensor[i] = 0.25 * (1 - expval ** 2)
+                self.metric_tensor[i] = self.compute_variance(self.qnodes[0].subcircuits[i])
 
         return g
+
+    @staticmethod
+    def compute_variance(subcircuit):
+        """Compute the variance of a qnode subcircuit.
+
+        .. note::
+
+            Until a PennyLane variance operation is supported, this
+            method assumes the subcircuit observable is involutory.
+
+        Args:
+            subcircuit (dict): an evaluated qnode subcircuit
+
+        Returns:
+            float: the variance of the evaluated qnode subcircuit expectation
+        """
+        # the expectation value of the generator <s*H>
+        expval = subcircuit['result']
+
+        # get the scaling factor s
+        scale = subcircuit['scale']
+
+        # calculate variance of generator s*H, where s is the scaling factor
+        # For now, we assume H is involutory, i.e., H^2 = I
+        # var = <(s*H)^2> - <s*H>^2 = s^2 <I> - <s*H>^2 = s^2 - <s*H>^2
+        var = scale ** 2 - expval ** 2
+        return var
 
     def apply_grad(self, grad, x):
         r"""Update the variables x to take a single optimization step. Flattens and unflattens
