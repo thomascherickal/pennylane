@@ -393,12 +393,12 @@ class QNode:
 
                 # get the expectation value corresponding
                 # to the generator of the current operation
-                if gen.__name__ in pennylane.expval.__all__:
-                    # generator is an existing PennyLane operation
-                    expval = getattr(pennylane.expval, gen.__name__)(wires, do_queue=False)
-                elif isinstance(gen, np.ndarray):
+                if isinstance(gen, np.ndarray):
                     # generator is a Hermitian matrix
                     expval = pennylane.expval.Hermitian(gen, wires, do_queue=False)
+                elif gen.__name__ in pennylane.expval.__all__:
+                    # generator is an existing PennyLane operation
+                    expval = getattr(pennylane.expval, gen.__name__)(wires, do_queue=False)
                 else:
                     raise QuantumFunctionError("Can't generate subcircuits, generator {}"
                                                "has no corresponding expectation value".format(gen))

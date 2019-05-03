@@ -181,6 +181,11 @@ class Operation(abc.ABC):
     * :attr:`~.Operation.grad_method`
     * :attr:`~.Operation.grad_recipe`
 
+    Finally, there are some additional optional class attributes
+    that may be set, and used by certain quantum optimizers:
+
+    * :attr:`~.Operation.generator`
+
     Args:
         args (tuple[float, int, array, Variable]): operation parameters
 
@@ -266,9 +271,9 @@ class Operation(abc.ABC):
 
             generator = [PauliX, 0.7]
 
-        Default is ``None``, indicating the operation has no generator.
+        Default is ``[None, 1]``, indicating the operation has no generator.
         """
-        return None
+        return [None, 1]
 
     @grad_recipe.setter
     def grad_recipe(self, value):

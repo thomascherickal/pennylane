@@ -15,6 +15,17 @@
 Pytest configuration file for PennyLane test suite.
 """
 import pytest
+import os
+
+
+# defaults
+TOL = 1e-3
+
+
+@pytest.fixture(scope="session")
+def tol():
+    """Numerical tolerance for equality tests."""
+    return float(os.environ.get("TOL", TOL))
 
 
 @pytest.fixture(scope='session')

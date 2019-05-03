@@ -54,7 +54,7 @@ State preparation
 Code details
 ~~~~~~~~~~~~
 """
-
+import numpy as np
 from pennylane.operation import Operation
 
 
@@ -313,6 +313,7 @@ class PhaseShift(Operation):
     num_wires = 1
     par_domain = 'R'
     grad_method = 'A'
+    generator = [np.array([[0, 0], [0, 1]]), 1]
 
 
 class Rot(Operation):

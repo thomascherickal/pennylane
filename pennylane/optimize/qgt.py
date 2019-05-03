@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """QGT optimizer"""
+from collections import Sequence
+
 import autograd
 import autograd.numpy as np
 
@@ -39,6 +41,7 @@ class QGTOptimizer:
         stepsize (float): the user-defined stepsize parameter :math:`\eta`
         tol (float): tolerance used for inverse
     """
+
     def __init__(self, stepsize=0.01, tol=1e-6):
         self._stepsize = stepsize
         self.metric_tensor = None
@@ -82,7 +85,7 @@ class QGTOptimizer:
             # we call the gradient function
 
             # check if the objective function is a QNode
-            if hasattr(objective_fn, 'construct_subcircuits'):
+            if hasattr(objective_fn, "construct_subcircuits"):
                 # objective function is the qnode!
 
                 # Note: we pass the parameters 'x' to this method,
@@ -96,16 +99,20 @@ class QGTOptimizer:
                 # objective function is a classical node
 
                 if qnodes is None:
-                    raise ValueError("As the provided objective function is not a QNode, "
-                                     "the qnode argument must be provided, containing a "
-                                     "list of all QNodes the objective function depends on.")
+                    raise ValueError(
+                        "As the provided objective function is not a QNode, "
+                        "the qnode argument must be provided, containing a "
+                        "list of all QNodes the objective function depends on."
+                    )
 
                 # use the user provided qnode dependencies
                 for q in qnodes:
                     try:
                         q.construct_subcircuits([x])
                     except AttributeError:
-                        raise ValueError("Item {} in list of provided QNodes is not a QNode.".format(q))
+                        raise ValueError(
+                            "Item {} in list of provided QNodes is not a QNode.".format(q)
+                        )
 
                 self.qnodes = qnodes
 
@@ -113,23 +120,29 @@ class QGTOptimizer:
         # evaluate the subcircuit expectations
         g = autograd.grad(objective_fn)(x)  # pylint: disable=no-value-for-parameter
 
+        if not isinstance(x, Sequence):
+            x = np.array([x])
+
         if self.metric_tensor is None:
             # metric tensor has not already been previously calculated.
             # calculate metric tensor elements for each qnode, and verify
             # they are identical.
-            metric_tensor = [np.zeros_like(x.flatten())]*len(self.qnodes)
+            metric_tensor = np.zeros([len(self.qnodes), len(x.flatten())])
 
             for idx, q in enumerate(self.qnodes):
                 for i in range(len(x.flatten())):
                     # evaluate metric tensor diagonals
-                    metric_tensor[idx][i] = self.compute_variance(q.subcircuits[i])
+                    metric_tensor[idx, i] = self.compute_variance(q.subcircuits[i])
 
-                # verify metric tensor is the same as previous metric tensor
-                same_tensor = np.allclose(metric_tensor[idx], metric_tensor[idx-1])
+                if idx > 0:
+                    # verify metric tensor is the same as previous metric tensor
+                    same_tensor = np.allclose(metric_tensor[idx], metric_tensor[idx - 1])
 
-                if not same_tensor:
-                    # stop the loop and raise an exception
-                    raise ValueError("QNodes containing different circuits currently not supported")
+                    if not same_tensor:
+                        # stop the loop and raise an exception
+                        raise ValueError(
+                            "QNodes containing different circuits currently not supported"
+                        )
 
             # since all metric tensors are identical, just keep the first one
             self.metric_tensor = metric_tensor[0]
@@ -160,10 +173,10 @@ class QGTOptimizer:
             float: the variance of the evaluated qnode subcircuit expectation
         """
         # the expectation value of the generator <s*H>
-        expval = subcircuit['result']
+        expval = subcircuit["result"]
 
         # get the scaling factor s
-        scale = subcircuit['scale']
+        scale = subcircuit["scale"]
 
         # calculate variance of generator s*H, where s is the scaling factor
         # For now, we assume H is involutory, i.e., H^2 = I
@@ -189,7 +202,7 @@ class QGTOptimizer:
         # inverse metric tensor
         # note: in the cases where np.abs(self.metric_tensor) > self.tol, we
         # should raise a warning to let the user know that tol should be reduced
-        G_inv = np.where(np.abs(self.metric_tensor) > self.tol, 1/self.metric_tensor, 0)
+        G_inv = np.where(np.abs(self.metric_tensor) > self.tol, 1 / self.metric_tensor, 0)
 
         x_new_flat = [e - self._stepsize * g * d for e, g, d in zip(x_flat, G_inv, grad_flat)]
 
