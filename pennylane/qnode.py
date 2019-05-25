@@ -350,7 +350,7 @@ class QNode:
         """Create subcircuits for each parameter.
 
         If the parameter appears in a gate :math:`G`, the subcircuit contains
-        all gates which precede :math:`G`, and :math:`G` is replaced by the expectation
+        all gates which precede :math:`G`, and :math:`G` is replaced by the variance
         value of its generator.
 
         Args:
@@ -387,20 +387,20 @@ class QNode:
                     raise QuantumFunctionError("Can't generate subcircuits, operation {}"
                                                "has no defined generator".format(curr_op))
 
-                # get the expectation value corresponding
+                # get the observable corresponding
                 # to the generator of the current operation
                 if isinstance(gen, np.ndarray):
                     # generator is a Hermitian matrix
-                    expval = pennylane.expval.Hermitian(gen, wires, do_queue=False)
+                    variance = pennylane.var.Hermitian(gen, wires, do_queue=False)
                 elif gen.__name__ in pennylane.expval.__all__:
                     # generator is an existing PennyLane operation
-                    expval = getattr(pennylane.expval, gen.__name__)(wires, do_queue=False)
+                    variance = getattr(pennylane.var, gen.__name__)(wires, do_queue=False)
                 else:
                     raise QuantumFunctionError("Can't generate subcircuits, generator {}"
                                                "has no corresponding expectation value".format(gen))
 
                 # add subcircuit for param to the dictionary
-                self.subcircuits[param_idx] = {'queue': queue, 'expval': [expval], 'result': None, 'scale': scale}
+                self.subcircuits[param_idx] = {'queue': queue, 'expval': [variance], 'result': None, 'scale': scale}
 
     def _op_successors(self, o_idx, only='G'):
         """Successors of the given operation in the quantum circuit.
@@ -573,7 +573,7 @@ class QNode:
             # execute any constructed subcircuits
             for _, circuit in self.subcircuits.items():
                 self.device.reset()
-                circuit['result'] = circuit['scale']*self.device.execute(circuit['queue'], circuit['expval'])
+                circuit['result'] = circuit['scale']**2 *self.device.execute(circuit['queue'], circuit['expval'])
 
         return self.output_type(ret)
 
