@@ -66,7 +66,6 @@ class PlaceholderExpectation():
     r"""pennylane.expval.PlaceholderExpectation()
     A generic base class for constructing placeholders for operations that
     exist under the same name in CV and qubit-based devices.
-
     When instantiated inside a QNode context, returns an instance
     of the respective class in expval.cv or expval.qubit.
     """
@@ -111,3 +110,82 @@ class Identity(PlaceholderExpectation): #pylint: disable=too-few-public-methods,
 
 
 __all__ = _cv__all__ + _qubit__all__ + [Identity.__name__]
+
+
+class VarianceFactory:
+    r"""A class factory with dynamic attributes for constructing variance of
+    observables values that are defined in expval.cv and expval.qubit.
+
+    When instantiated inside a QNode context, returns an instance
+    of the respective class in expval.cv or expval.qubit, with
+    class attribute ``return_type`` set to ``'variance'``.
+
+    To use the dynamic attribute loading, you may use this class as
+    follows:
+
+    >>> var = VarianceFactory()
+    >>> var.PauliX
+    >>> var.Homodyne
+    >>> var.qubit.Hermitian # only qubit observables
+    >>> var.cv.MeanPhoton # only CV observables
+    """
+    def __init__(self, observables=__all__, submodule=''):
+        self.observables = observables
+        self.submodule = submodule
+
+    def __getattr__(self, item):
+        # pylint: disable=protected-access,too-many-branches
+        if item == 'qubit':
+            # allows the construct qml.var.qubit.PauliX
+            return VarianceFactory(observables=_qubit__all__, submodule='.qubit')
+
+        if item == 'cv':
+            # allows the construct qml.cv.qubit.Homodyne
+            return VarianceFactory(observables=_cv__all__, submodule='.cv')
+
+        if item not in self.observables:
+            raise AttributeError("module 'pennylane.var{}' has no attribute '{}'".format(self.submodule, item))
+
+        if self.observables == __all__:
+            if QNode._current_context is not None:
+                # inside a QNode
+                # get the QNode device supported expectations
+                expvals = QNode._current_context.device.expectations
+
+                # inspect the resulting expectations to determine if
+                # the device is a CV or a qubit device
+                # TODO: in the next breaking release, make it mandatory for plugins to declare
+                # whether they target qubit or CV operations, to avoid needing to
+                # inspect supported_expectation directly.
+                if expvals.intersection([item for item in _cv__all__]):
+                    expval_class = getattr(cv, item)
+                elif expvals.intersection([item for item in _qubit__all__]):
+                    expval_class = getattr(qubit, item)
+                else:
+                    raise QuantumFunctionError("Unable to determine whether this device supports CV or qubit "
+                                               "Operations when constructing the {} Variance.".format(item))
+            else:
+                # # unable to determine which operation is requested
+                # if item in _qubit__all__ and item in _cv__all__:
+                #     raise AttributeError("Variance operator exists for both CV and Qubit circuit. "
+                #                          "Please specify by using either pennylane.var.cv.Name or "
+                #                          "pennylane.var.qubit.Name.")
+
+                if item in _qubit__all__:
+                    expval_class = getattr(qubit, item)
+                else:
+                    expval_class = getattr(cv, item)
+        else:
+            # the variance was called via the cv or qubit attribute
+            if self.observables == _qubit__all__:
+                expval_class = getattr(qubit, item)
+            elif self.observables == _cv__all__:
+                expval_class = getattr(cv, item)
+
+        # return a class inheriting from the expectation class,
+        # but with return type now set to variance
+        docstring = expval_class.__doc__.replace('expval', 'var').replace('expectation', 'variance')
+        return type(item, (expval_class,), {"return_type": "variance", "__doc__": docstring})
+
+    def __dir__(self):
+        return self.observables
