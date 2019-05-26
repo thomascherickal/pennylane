@@ -1006,13 +1006,17 @@ class TestSubcircuits:
         circuit(a, b, c)
 
         # first parameter subcircuit
-        assert circuit.subcircuits[0]['result'] == 0
+        assert circuit.subcircuits[0]['result'] == 0.25
 
         # second parameter subcircuit
-        assert np.allclose(circuit.subcircuits[1]['result'], 0.5*np.sin(a), atol=tol, rtol=0)
+        res = circuit.subcircuits[1]['result']
+        expected = np.cos(a)**2/4
+        assert np.allclose(res, expected, atol=tol, rtol=0)
 
         # third parameter subcircuit
-        assert np.allclose(circuit.subcircuits[2]['result'], 0.5 - 0.5*np.cos(a)*np.cos(b), atol=tol, rtol=0)
+        res = circuit.subcircuits[2]['result']
+        expected = (3-2*np.cos(a)**2*np.cos(2*b)-np.cos(2*a))/16
+        assert np.allclose(res, expected, atol=tol, rtol=0)
 
 
 class TestQNodeVariance:
