@@ -53,6 +53,7 @@ info = {
                 ],
     'entry_points': {
         'pennylane.plugins': [
+            'basic.qubit = pennylane.plugins:BasicQubit',
             'default.qubit = pennylane.plugins:DefaultQubit',
             'default.gaussian = pennylane.plugins:DefaultGaussian'
             ],

@@ -79,7 +79,6 @@ from scipy.linalg import expm, eigh
 
 from pennylane import Device
 
-
 # tolerance for numerical errors
 tolerance = 1e-10
 
@@ -104,7 +103,6 @@ def spectral_decomposition_qubit(A):
         temp = v[:, k]
         P.append(np.outer(temp, temp.conj()))
     return d, P
-
 
 #========================================================
 #  fixed gates
@@ -238,16 +236,16 @@ def identity(*_):
 #========================================================
 
 
-class DefaultQubit(Device):
-    """Default qubit device for PennyLane.
+class BasicQubit(Device):
+    """Basic qubit device for PennyLane.
 
     Args:
         wires (int): the number of modes to initialize the device in
         shots (int): How many times the circuit should be evaluated (or sampled) to estimate
             the expectation values. A value of 0 yields the exact result.
     """
-    name = 'Default qubit PennyLane plugin'
-    short_name = 'default.qubit'
+    name = 'Basic qubit PennyLane plugin'
+    short_name = 'basic.qubit'
     pennylane_requires = '0.3'
     version = '0.3.0'
     author = 'Xanadu Inc.'
@@ -304,7 +302,7 @@ class DefaultQubit(Device):
             if n > self.num_wires or not (set(par[0]) == {0, 1} or set(par[0]) == {0} or set(par[0]) == {1}):
                 raise ValueError("BasisState parameter must be an array of 0 or 1 integers of length at most {}.".format(self.num_wires))
             if wires is not None and wires != [] and list(wires) != list(range(self.num_wires)):
-                raise ValueError("The default.qubit plugin can apply BasisState only to all of the {} wires.".format(self.num_wires))
+                raise ValueError("The basic.qubit plugin can apply BasisState only to all of the {} wires.".format(self.num_wires))
 
             num = int(np.sum(np.array(par[0])*2**np.arange(n-1, -1, -1)))
 
@@ -313,11 +311,11 @@ class DefaultQubit(Device):
             return
 
         A = self._get_operator_matrix(operation, par)
-
-        # apply unitary operations
-        U = self.expand(A, wires)
-
-        self._state = U @ self._state
+        A = np.reshape(A, [2] * len(wires) * 2)
+        s = np.reshape(self._state, [2] * self.num_wires)
+        axes = (np.arange(len(wires), 2 * len(wires)), wires)
+        u = np.tensordot(A, s, axes=axes)
+        self._state = np.reshape(u, 2 ** self.num_wires)
 
     def expval(self, expectation, wires, par):
         # measurement/expectation value <psi|A|psi>

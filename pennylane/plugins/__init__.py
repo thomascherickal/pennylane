@@ -14,3 +14,4 @@
 """Top level PennyLane module"""
 from .default_qubit import DefaultQubit
 from .default_gaussian import DefaultGaussian
+from .basic_qubit import BasicQubit
