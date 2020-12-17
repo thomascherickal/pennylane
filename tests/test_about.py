@@ -1,4 +1,4 @@
-# Copyright 2019 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,14 +15,53 @@
 Unit tests for the :mod:`pennylane` configuration classe :class:`Configuration`.
 """
 # pylint: disable=protected-access
-import pennylane
+
+import contextlib
+import io
+import importlib
+import re
+import pkg_resources
+
 import pytest
 
+import pennylane as qml
 
-def test_about(capfd):
-	"""
-	about: Tests if the about string prints correct.
-	"""
-	pennylane.about()
-	out, err = capfd.readouterr()
-	assert (type(out) == str)
+
+def test_about():
+    """
+    about: Tests if the about string prints correct.
+    """
+    f = io.StringIO()
+    with contextlib.redirect_stdout(f):
+        qml.about()
+    out = f.getvalue().strip()
+
+    assert "Version:" in out
+    pl_version_match = re.search(r"Version:\s+([\S]+)\n", out).group(1)
+    assert qml.version().replace("-", ".") in pl_version_match
+    assert "Numpy version" in out
+    assert "Scipy version" in out
+    assert "default.qubit" in out
+    assert "default.gaussian" in out
+
+
+def test_qchem_not_installed_error(monkeypatch):
+    """Test QChem causes an import error on access
+    if not installed"""
+
+    class Entry:
+        """Dummy entry point for mocking"""
+        name = None
+
+    with monkeypatch.context() as m:
+        m.setattr(pkg_resources, "iter_entry_points", lambda name: [Entry()])
+
+        importlib.reload(qml)
+
+        with pytest.raises(ImportError, match="PennyLane-QChem not installed."):
+            print(qml.qchem)
+
+        with pytest.raises(ImportError, match="PennyLane-QChem not installed."):
+            qml.qchem.generate_hamiltonian()
+
+    importlib.reload(qml)

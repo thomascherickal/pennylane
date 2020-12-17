@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,148 +12,162 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-.. _library_overview:
-
-Library overview
-================
-
-The PennyLane codebase contains a number of complementary components.
-These can be roughly separated into a user-interface, supported core
-operations, and a developer API.
-
-Software components
--------------------
-
-The main user-interface to PennyLane. These are the functions and
-classes that will be used by a majority of users. For a good introduction
-on the user-interface of PennyLane, have a look at our tutorials.
-
-**Basic functionality**
-
-* The device loader: :func:`pennylane.device`
-* The quantum node object: :mod:`pennylane.QNode <pennylane.qnode>`
-* The QNode decorator: :mod:`pennylane.qnode <pennylane.decorator>`
-
-**Extra modules**
-
-* Optimization methods: :mod:`pennylane.optimize`
-* Configuration: :mod:`pennylane.Configuration <pennylane.configuration>`
-* Utilities: :mod:`pennylane.utils <pennylane.utils>`
-* NumPy with support for automatic differentiation: :mod:`pennylane.numpy <pennylane.numpy>`
-
-**Core operations**
-
-The main operations and observables supported by PennyLane.
-Each of the operations supports a method
-of computing gradients (either analytically or numerically).
-
-The conventions used in defining these operations are also
-provided here.
-
-* Supported operations and observables: :mod:`pennylane.ops`
-* Supported measurement types: :mod:`pennylane.measure`
-
-**Developer API**
-
-Used to develop new plugins for PennyLane - providing new devices
-for QNodes, or supporting new operations and expectations. For more
-details, see :ref:`developer_overview`.
-
-* The base Device class: :mod:`pennylane.Device <pennylane._device>`
-* Symbolic quantum operations: :mod:`pennylane.operation`
-* Quantum circuit parameters: :mod:`pennylane.variable`
-
-Summary
--------
-
-.. autosummary::
-
-
-    ~configuration.Configuration
-    ~_device.Device
-    ~_device.DeviceError
-    device
-    grad
-    jacobian
-    ~autograd.numpy
-    ops
-    optimize
-    ~qnode.QNode
-    ~decorator.qnode
-    ~qnode.QuantumFunctionError
-    version
-
-.. note::
-
-    All individual operations and observables (contained in :mod:`~.ops`),
-    measurements (contained in :mod:`~.measure`), and optimizers
-    (contained in :mod:`~.optimize`) may also be imported directly from PennyLane.
-
-Code details
-~~~~~~~~~~~~
+This is the top level module from which all basic functions and classes of
+PennyLane can be directly imported.
 """
-import os
-from pkg_resources import iter_entry_points
+from importlib import reload
+import pkg_resources
 
-from autograd import numpy
-from autograd import grad as _grad
-from autograd import jacobian as _jacobian
+import numpy as _np
 
 from semantic_version import Version, Spec
 
+# QueuingContext needs to be imported before all other pennylane imports
+from ._queuing import QueuingContext  # pylint: disable=wrong-import-order
 import pennylane.operation
 
 import pennylane.init
-import pennylane.templates.layers
-import pennylane.templates.embeddings
+import pennylane.templates
+import pennylane.qnn
+import pennylane.qaoa as qaoa
+from pennylane.templates import template, broadcast, layer
 from pennylane.about import about
+from pennylane.vqe import Hamiltonian, ExpvalCost, VQECost
 
-
+from .circuit_graph import CircuitGraph
 from .configuration import Configuration
 from ._device import Device, DeviceError
-from .measure import expval, var, sample
+from .collections import apply, map, sum, dot, QNodeCollection
+from ._qubit_device import QubitDevice
+from .measure import expval, var, sample, probs
 from .ops import *
 from .optimize import *
-from .qnode import QNode, QuantumFunctionError
+from .qnodes import qnode, QNode, QuantumFunctionError
+from .utils import inv
 from ._version import __version__
+from .io import *
+from ._grad import jacobian, grad
 
-# NOTE: this has to be imported last,
-# otherwise it will clash with the .qnode import.
-from .decorator import qnode
-
-
-# overwrite module docstrings
-numpy.__doc__ = "NumPy with automatic differentiation support, provided by Autograd."
-
+import pennylane.math  # pylint: disable=wrong-import-order
+import pennylane.tape  # pylint: disable=wrong-import-order
+from .tape import enable_tape, disable_tape, tape_mode_active
 
 # Look for an existing configuration file
 default_config = Configuration("config.toml")
 
 
-# get list of installed plugin devices
-plugin_devices = {entry.name: entry for entry in iter_entry_points("pennylane.plugins")}
+def _get_device_entrypoints():
+    """Returns a dictionary mapping the device short name to the
+    loadable entrypoint"""
+    return {entry.name: entry for entry in pkg_resources.iter_entry_points("pennylane.plugins")}
+
+
+def refresh_devices():
+    """Scan installed PennyLane plugins to refresh the device list."""
+
+    # This function does not return anything; instead, it has a side effect
+    # which is to update the global plugin_devices variable.
+
+    # We wish to retain the behaviour of a global plugin_devices dictionary,
+    # as re-importing pkg_resources can be a very slow operation on systems
+    # with a large number of installed packages.
+    global plugin_devices  # pylint:disable=global-statement
+
+    reload(pkg_resources)
+    plugin_devices = _get_device_entrypoints()
+
+
+# get list of installed devices
+plugin_devices = _get_device_entrypoints()
+
+
+# get chemistry plugin
+class NestedAttrError:
+    """This class mocks out the qchem module in case
+    it is not installed. Any attempt to print an instance
+    of this class, or to access an attribute of this class,
+    results in an import error, directing the user to the installation
+    instructions for PennyLane Qchem"""
+
+    error_msg = (
+        "PennyLane-QChem not installed. \n\nTo access the qchem "
+        "module, you can install PennyLane-QChem via pip:"
+        "\n\npip install pennylane-qchem"
+        "\n\nFor more details, see the quantum chemistry documentation:"
+        "\nhttps://pennylane.readthedocs.io/en/stable/introduction/chemistry.html"
+    )
+
+    def __str__(self):
+        raise ImportError(self.error_msg) from None
+
+    def __getattr__(self, name):
+        raise ImportError(self.error_msg) from None
+
+    __repr__ = __str__
+
+
+qchem = NestedAttrError()
+
+for entry in pkg_resources.iter_entry_points("pennylane.qchem"):
+    if entry.name == "OpenFermion":
+        qchem = entry.load()
 
 
 def device(name, *args, **kwargs):
     r"""device(name, wires=1, *args, **kwargs)
-    Load a plugin :class:`~.Device` and return the instance.
+    Load a :class:`~.Device` and return the instance.
 
     This function is used to load a particular quantum device,
     which can then be used to construct QNodes.
 
-    PennyLane comes with support for the following two devices:
+    PennyLane comes with support for the following devices:
 
-    * :mod:`'default.qubit' <pennylane.plugins.default_qubit>`: a simple pure
+    * :mod:`'default.qubit' <pennylane.devices.default_qubit>`: a simple
       state simulator of qubit-based quantum circuit architectures.
 
-    * :mod:`'default.gaussian' <pennylane.plugins.default_gaussian>`: a simple simulator
+    * :mod:`'default.gaussian' <pennylane.devices.default_gaussian>`: a simple simulator
       of Gaussian states and operations on continuous-variable circuit architectures.
 
+    * :mod:`'default.qubit.tf' <pennylane.devices.default_qubit_tf>`: a state simulator
+      of qubit-based quantum circuit architectures written in TensorFlow, which allows
+      automatic differentiation through the simulation.
+
+    * :mod:`'default.qubit.autograd' <pennylane.devices.default_qubit_autograd>`: a state simulator
+      of qubit-based quantum circuit architectures which allows
+      automatic differentiation through the simulation via python's autograd library.
+
     In addition, additional devices are supported through plugins — see
-    :ref:`plugins` for more details.
+    the  `available plugins <https://pennylane.ai/plugins.html>`_ for more
+    details.
 
     All devices must be loaded by specifying their **short-name** as listed above,
-    followed by the number of *wires* (subsystems) you wish to initialize.
+    followed by the **wires** (subsystems) you wish to initialize. The *wires*
+    argument can be an integer, in which case the wires of the device are addressed
+    by consecutive integers:
+
+    .. code-block:: python
+
+        dev = qml.device('default.qubit', wires=5)
+
+        def circuit():
+           qml.Hadamard(wires=1)
+           qml.Hadamard(wires=[0])
+           qml.CNOT(wires=[3, 4])
+           ...
+
+    The *wires* argument can also be a sequence of unique numbers or strings, specifying custom wire labels
+    that the user employs to address the wires:
+
+    .. code-block:: python
+
+        dev = qml.device('default.qubit', wires=['ancilla', 'q11', 'q12', -1, 1])
+
+        def circuit():
+           qml.Hadamard(wires='q11')
+           qml.Hadamard(wires=['ancilla'])
+           qml.CNOT(wires=['q12', -1] )
+           ...
+
 
     Some devices may accept additional arguments. For instance,
     ``default.gaussian`` accepts the keyword argument ``hbar``, to set
@@ -169,9 +183,15 @@ def device(name, *args, **kwargs):
             the device with
 
     Keyword Args:
-        config (pennylane.Configuration): an PennyLane configuration object
+        config (pennylane.Configuration): a PennyLane configuration object
             that contains global and/or device specific configurations.
     """
+    if name not in plugin_devices:
+        # Device does not exist in the loaded device list.
+        # Attempt to refresh the devices, in case the user
+        # installed the plugin during the current Python session.
+        refresh_devices()
+
     if name in plugin_devices:
         options = {}
 
@@ -189,7 +209,7 @@ def device(name, *args, **kwargs):
         kwargs.pop("config", None)
         options.update(kwargs)
 
-        # loads the plugin device class
+        # loads the device class
         plugin_device_class = plugin_devices[name].load()
 
         if Version(version()) not in Spec(plugin_device_class.pennylane_requires):
@@ -200,54 +220,10 @@ def device(name, *args, **kwargs):
                 )
             )
 
-        # load plugin device
+        # load device
         return plugin_device_class(*args, **options)
 
-    raise DeviceError(
-        "Device does not exist. Make sure the required plugin is installed."
-    )
-
-
-def grad(func, argnum):
-    """Returns the gradient (as a callable function) of functions accessible within PennyLane.
-
-    This is a wrapper around the :mod:`autograd.grad` function.
-
-    Args:
-        func (function): a Python function or QNode that contains
-            a combination of quantum and classical nodes
-        argnum (int or list(int)): which argument(s) to take the gradient
-            with respect to
-
-    Returns:
-        function: the function that returns the gradient of the input
-        function with respect to the arguments in argnum
-    """
-    # pylint: disable=no-value-for-parameter
-    return _grad(func, argnum)
-
-
-def jacobian(func, argnum):
-    """Returns the Jacobian (as a callable function) of vector-valued
-    functions accessible within PennyLane.
-
-    This is a wrapper around the :mod:`autograd.jacobian` function.
-
-    Args:
-        func (function): a vector-valued Python function or QNode that contains
-            a combination of quantum and classical nodes. The output of the computation
-            must consist of a single NumPy array (if classical) or a tuple of
-            expectation values (if a quantum node)
-        argnum (int): which argument to take the gradient
-            with respect to. If the argument is a NumPy array, then the Jacobian
-            corresponding to all input elements and all output elements is returned.
-
-    Returns:
-        function: the function that returns the Jacobian of the input
-        function with respect to the arguments in argnum
-    """
-    # pylint: disable=no-value-for-parameter
-    return _jacobian(func, argnum)
+    raise DeviceError("Device does not exist. Make sure the required plugin is installed.")
 
 
 def version():

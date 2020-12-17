@@ -8,13 +8,6 @@ community - while we will continue working on adding new and exciting features t
 we invite you to join us and suggest improvements, research ideas, or even just to discuss how
 PennyLane fits into your workflow.
 
-**Update**: big announcement! We're excited to launch the Xanadu Quantum Software Competition, with prizes of up
-to $1000 on offer. Submissions close 30th August 2019 — so no excuse not to submit your PennyLane
-contribution, whether its an informative Jupyter notebook, PennyLane plugin, or a cool research result.
-
-See the [competition website](https://pennylane.ai/competition) or our
-[blog post](https://medium.com/xanaduai/announcing-the-xanadu-quantum-software-competition-bdcd3d6d53a9) for more.
-
 ## How can I get involved in the community?
 
 If you want to contribute but don't know where to start, start by checking out our
@@ -29,7 +22,7 @@ Available categories include:
 * `PennyLane Help`: For help and advice using PennyLane
 * `PennyLane Development`: For discussion of PennyLane development
 * `PennyLane Plugins`: For discussion of the available PennyLane plugins, and plugin development
-* `Xanadu Software`: For discussion relating to other Xanadu software projects, including [StrawberryFields](https://github.com/xanaduai/strawberryfields), [QMLT](https://github.com/xanaduai/hafnian), [Hafnian](https://github.com/xanaduai/hafnian), and [OpenBoson](https://github.com/xanaduai/sfopenboson).
+* `Xanadu Software`: For discussion relating to other Xanadu software projects, including [Strawberry Fields](https://github.com/xanaduai/strawberryfields) and [The Walrus](https://github.com/xanaduai/thewalrus).
 
 Sometimes, it might take us a couple of hours to reply - please be patient!
 
@@ -61,7 +54,7 @@ It's up to you!
 * **Develop a PennyLane plugin** - PennyLane is designed to be device and quantum-framework agnostic;
   the quantum node device can be switched out to any other compatible devices, with no code changes necessary.
   We would love to support even more devices and quantum frameworks. If you would like to write a PennyLane plugin,
-  see the [developer overview](https://pennylane.readthedocs.io/en/latest/API/overview.html) section of our documentation.
+  see the [developer overview](https://pennylane.readthedocs.io/en/stable/development/guide.html) section of our documentation.
 
   Ask us if you have any questions, and send a link to your plugin to support@xanadu.ai so we can highlight it in
   our documentation!
@@ -81,7 +74,7 @@ To submit a bug report, please work your way through the following checklist:
   to expand on the issue if you would like.
 
 * **Fill out the issue template**. If you cannot find an existing issue addressing the problem, create a new
-  issue by filling out the [issue template](.github/ISSUE_TEMPLATE.md). This template is added automatically to the comment
+  issue by filling out the [issue template](ISSUE_TEMPLATE.md). This template is added automatically to the comment
   box when you create a new issue. Please try and add as many details as possible!
 
 * Try and make your issue as **clear, concise, and descriptive** as possible. Include a clear and descriptive title,
@@ -135,7 +128,7 @@ Before submitting a pull request, please make sure the following is done:
 
 ### Submitting the pull request
 * When ready, submit your fork as a [pull request](https://help.github.com/articles/about-pull-requests) to the PennyLane
-  repository, filling out the [pull request template](.github/PULL_REQUEST_TEMPLATE.md). This template is added automatically
+  repository, filling out the [pull request template](PULL_REQUEST_TEMPLATE.md). This template is added automatically
   to the comment box when you create a new issue.
 
 * When describing the pull request, please include as much detail as possible regarding the changes made/new features
@@ -143,8 +136,8 @@ Before submitting a pull request, please make sure the following is done:
 
 * Once you have submitted the pull request, three things will automatically occur:
 
-  - The **test suite** will automatically run on [Travis CI](https://travis-ci.org/XanaduAI/pennylane)
-    to ensure that the all tests continue to pass.
+  - The **test suite** will automatically run as a GitHub action to ensure that the all tests
+    continue to pass.
   - Once the test suite is finished, a **code coverage report** will be generated on
     [Codecov](https://codecov.io/gh/XanaduAI/pennylane). This will calculate the percentage of PennyLane
     covered by the test suite, to ensure that all new code additions are adequately tested.

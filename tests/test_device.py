@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,332 +14,823 @@
 """
 Unit tests for the :mod:`pennylane` :class:`Device` class.
 """
-import unittest
-from unittest.mock import patch, PropertyMock
-import inspect
-import logging as log
-log.getLogger('defaults')
+import importlib
+import pkg_resources
 
-import autograd
-from autograd import numpy as np
+import pytest
+import numpy as np
+import pennylane as qml
+from pennylane import Device, DeviceError
+from pennylane.qnodes import QuantumFunctionError
+from pennylane.qnodes.base import BaseQNode
+from pennylane.wires import Wires
+from collections import OrderedDict
 
-from defaults import pennylane as qml, BaseTest
-from pennylane.plugins import DefaultQubit
-from pennylane import Device
+mock_device_paulis = ["PauliX", "PauliY", "PauliZ"]
+
+# pylint: disable=abstract-class-instantiated, no-self-use, redefined-outer-name, invalid-name
+
+@pytest.fixture(scope="function")
+def mock_device_with_operations(monkeypatch):
+    """A function to create a mock device with non-empty operations"""
+    with monkeypatch.context() as m:
+        m.setattr(Device, '__abstractmethods__', frozenset())
+        m.setattr(Device, 'operations', mock_device_paulis)
+        m.setattr(Device, 'observables', mock_device_paulis)
+        m.setattr(Device, 'short_name', 'MockDevice')
+
+        def get_device(wires=1):
+            return Device(wires=wires)
+
+        yield get_device
 
 
-class DeviceTest(BaseTest):
-    """Device tests."""
-    def setUp(self):
-        self.default_devices = ['default.qubit', 'default.gaussian']
+@pytest.fixture(scope="function")
+def mock_device_with_observables(monkeypatch):
+    """A function to create a mock device with non-empty observables"""
+    with monkeypatch.context() as m:
+        m.setattr(Device, '__abstractmethods__', frozenset())
+        m.setattr(Device, 'operations', mock_device_paulis)
+        m.setattr(Device, 'observables', mock_device_paulis)
+        m.setattr(Device, 'short_name', 'MockDevice')
 
-        self.dev = {}
+        def get_device(wires=1):
+            return Device(wires=wires)
 
-        for device_name in self.default_devices:
-            self.dev[device_name] = qml.device(device_name, wires=2)
+        yield get_device
 
-    def test_reset(self):
-        """Test reset works (no error is raised). Does not verify
-        that the circuit is actually reset."""
-        self.logTestName()
 
-        for dev in self.dev.values():
-            dev.reset()
+@pytest.fixture(scope="function")
+def mock_device_supporting_paulis(monkeypatch):
+    """A function to create a mock device with non-empty observables"""
+    with monkeypatch.context() as m:
+        m.setattr(Device, '__abstractmethods__', frozenset())
+        m.setattr(Device, 'operations', mock_device_paulis)
+        m.setattr(Device, 'observables', mock_device_paulis)
+        m.setattr(Device, 'short_name', 'MockDevice')
 
-    def test_short_name(self):
-        """test correct short name"""
-        self.logTestName()
+        def get_device(wires=1):
+            return Device(wires=wires)
 
-        for name, dev in self.dev.items():
-            self.assertEqual(dev.short_name, name)
+        yield get_device
 
-    def test_supported(self):
-        """check that a nonempty set of operations/observables are supported"""
-        self.logTestName()
 
-        for dev in self.dev.values():
-            ops = dev.operations
-            exps = dev.observables
-            self.assertTrue(len(ops) > 0)
-            self.assertTrue(len(exps) > 0)
+@pytest.fixture(scope="function")
+def mock_device_supporting_paulis_and_inverse(monkeypatch):
+    """A function to create a mock device with non-empty operations
+    and supporting inverses"""
+    with monkeypatch.context() as m:
+        m.setattr(Device, '__abstractmethods__', frozenset())
+        m.setattr(Device, 'operations', mock_device_paulis)
+        m.setattr(Device, 'observables', mock_device_paulis)
+        m.setattr(Device, 'short_name', 'MockDevice')
+        m.setattr(Device, '_capabilities', {"supports_inverse_operations": True})
 
-            for op in ops:
-                self.assertTrue(dev.supports_operation(op))
+        def get_device(wires=1):
+            return Device(wires=wires)
 
-            for obs in exps:
-                self.assertTrue(dev.supports_observable(obs))
+        yield get_device
 
-    @patch.multiple(Device, __abstractmethods__=set(), operations=PropertyMock(return_value=['PauliX']))
-    def test_supports_operation_argument_types(self):
-        """Checks that device.supports_operations returns the correct result 
+
+@pytest.fixture(scope="function")
+def mock_device_supporting_observables_and_inverse(monkeypatch):
+    """A function to create a mock device with non-empty operations
+    and supporting inverses"""
+    with monkeypatch.context() as m:
+        m.setattr(Device, '__abstractmethods__', frozenset())
+        m.setattr(Device, 'operations', mock_device_paulis)
+        m.setattr(Device, 'observables', mock_device_paulis + ['Hermitian'])
+        m.setattr(Device, 'short_name', 'MockDevice')
+        m.setattr(Device, '_capabilities', {"supports_inverse_operations": True})
+
+        def get_device(wires=1):
+            return Device(wires=wires)
+
+        yield get_device
+
+
+mock_device_capabilities = {
+    "measurements": "everything",
+    "noise_models": ["depolarizing", "bitflip"],
+}
+
+
+@pytest.fixture(scope="function")
+def mock_device_with_capabilities(monkeypatch):
+    """A function to create a mock device with non-empty observables"""
+    with monkeypatch.context() as m:
+        m.setattr(Device, '__abstractmethods__', frozenset())
+        m.setattr(Device, '_capabilities', mock_device_capabilities)
+
+        def get_device(wires=1):
+            return Device(wires=wires)
+
+        yield get_device
+
+
+@pytest.fixture(scope="function")
+def mock_device_with_paulis_and_methods(monkeypatch):
+    """A function to create a mock device with non-empty observables"""
+    with monkeypatch.context() as m:
+        m.setattr(Device, '__abstractmethods__', frozenset())
+        m.setattr(Device, '_capabilities', mock_device_capabilities)
+        m.setattr(Device, 'operations', mock_device_paulis)
+        m.setattr(Device, 'observables', mock_device_paulis)
+        m.setattr(Device, 'short_name', 'MockDevice')
+        m.setattr(Device, 'expval', lambda self, x, y, z: 0)
+        m.setattr(Device, 'var', lambda self, x, y, z: 0)
+        m.setattr(Device, 'sample', lambda self, x, y, z: 0)
+        m.setattr(Device, 'apply', lambda self, x, y, z: None)
+
+        def get_device(wires=1):
+            return Device(wires=wires)
+
+        yield get_device
+
+
+@pytest.fixture(scope="function")
+def mock_device(monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(Device, '__abstractmethods__', frozenset())
+        m.setattr(Device, '_capabilities', mock_device_capabilities)
+        m.setattr(Device, 'operations', ["PauliY", "RX", "Rot"])
+        m.setattr(Device, 'observables', ["PauliZ"])
+        m.setattr(Device, 'short_name', 'MockDevice')
+        m.setattr(Device, 'expval', lambda self, x, y, z: 0)
+        m.setattr(Device, 'var', lambda self, x, y, z: 0)
+        m.setattr(Device, 'sample', lambda self, x, y, z: 0)
+        m.setattr(Device, 'apply', lambda self, x, y, z: None)
+
+        def get_device(wires=1):
+            return Device(wires=wires)
+
+        yield get_device
+
+
+class TestDeviceSupportedLogic:
+    """Test the logic associated with the supported operations and observables"""
+
+    # pylint: disable=no-self-use, redefined-outer-name
+
+    def test_supports_operation_argument_types(self, mock_device_with_operations):
+        """Checks that device.supports_operations returns the correct result
            when passed both string and Operation class arguments"""
-        self.logTestName()
 
-        mock_device = Device()
+        dev = mock_device_with_operations()
 
-        self.assertTrue(mock_device.supports_operation('PauliX'))
-        self.assertTrue(mock_device.supports_operation(qml.PauliX))
+        assert dev.supports_operation("PauliX")
+        assert dev.supports_operation(qml.PauliX)
 
-    @patch.multiple(Device, __abstractmethods__=set(), observables=PropertyMock(return_value=['PauliX']))
-    def test_supports_observable_argument_types(self):
-        """Checks that device.supports_observable returns the correct result 
+        assert not dev.supports_operation("S")
+        assert not dev.supports_operation(qml.CNOT)
+
+    def test_supports_observable_argument_types(self, mock_device_with_observables):
+        """Checks that device.supports_observable returns the correct result
            when passed both string and Operation class arguments"""
-        self.logTestName()
+        dev = mock_device_with_observables()
 
-        mock_device = Device()
+        assert dev.supports_observable("PauliX")
+        assert dev.supports_observable(qml.PauliX)
 
-        self.assertTrue(mock_device.supports_observable('PauliX'))
-        self.assertTrue(mock_device.supports_observable(qml.PauliX))
+        assert not dev.supports_observable("Identity")
+        assert not dev.supports_observable(qml.Identity)
 
-    @patch.multiple(Device, __abstractmethods__=set())
-    def test_supports_operation_exception(self):
-        """check that a the function device.supports_operation raises proper errors
+    def test_supports_obeservable_inverse(self, mock_device_supporting_paulis_and_inverse):
+        dev = mock_device_supporting_paulis_and_inverse()
+
+        assert dev.supports_observable("PauliX.inv")
+        assert not dev.supports_observable("Identity.inv")
+
+    def test_supports_obeservable_raise_error_hermitian_inverse(self, mock_device_supporting_observables_and_inverse):
+        dev = mock_device_supporting_observables_and_inverse()
+
+        assert dev.supports_observable("PauliX")
+        assert dev.supports_observable("PauliX.inv")
+        assert dev.supports_observable("Hermitian")
+
+        assert not dev.supports_observable("Hermitian.inv")
+
+    def test_supports_operation_exception(self, mock_device):
+        """check that device.supports_operation raises proper errors
            if the argument is of the wrong type"""
-        self.logTestName()
+        dev = mock_device()
 
-        mock_device = Device()
+        with pytest.raises(
+                ValueError,
+                match="The given operation must either be a pennylane.Operation class or a string.",
+        ):
+            dev.supports_operation(3)
 
-        with self.assertRaisesRegex(ValueError, "The given operation must either be a pennylane.Operation class or a string."):
-            mock_device.supports_operation(3)
+        with pytest.raises(
+                ValueError,
+                match="The given operation must either be a pennylane.Operation class or a string.",
+        ):
+            dev.supports_operation(Device)
 
-        with self.assertRaisesRegex(ValueError, "The given operation must either be a pennylane.Operation class or a string."):
-            mock_device.supports_operation(Device)
-
-    @patch.multiple(Device, __abstractmethods__=set())
-    def test_supports_observable_exception(self):
-        """check that a the function device.supports_observable raises proper errors
+    def test_supports_observable_exception(self, mock_device):
+        """check that device.supports_observable raises proper errors
            if the argument is of the wrong type"""
-        self.logTestName()
+        dev = mock_device()
 
-        mock_device = Device()
+        with pytest.raises(
+                ValueError,
+                match="The given observable must either be a pennylane.Observable class or a string.",
+        ):
+            dev.supports_observable(3)
 
-        with self.assertRaisesRegex(ValueError, "The given operation must either be a pennylane.Observable class or a string."):
-            mock_device.supports_observable(3)
+        operation = qml.CNOT
 
-        with self.assertRaisesRegex(ValueError, "The given operation must either be a pennylane.Observable class or a string."):
-            mock_device.supports_observable(qml.CNOT)
+        with pytest.raises(
+                ValueError,
+                match="The given observable must either be a pennylane.Observable class or a string.",
+        ):
+            dev.supports_observable(operation)
 
-    def test_check_validity(self):
-        """test that the check_validity method correctly
-        determines what operations/observables are supported."""
-        self.logTestName()
 
-        dev = qml.device('default.qubit', wires=2)
-        # overwrite the device supported operations and observables
-        dev._operation_map = {'RX':0, 'PauliX':0, 'PauliY':0, 'PauliZ':0, 'Hadamard':0}
-        dev._observable_map = {'PauliZ':0, 'Identity':0}
+class TestInternalFunctions:
+    """Test the internal functions of the abstract Device class"""
 
-        # test a valid queue
+    def test_check_validity_on_valid_queue(self, mock_device_supporting_paulis):
+        """Tests the function Device.check_validity with valid queue and observables"""
+        dev = mock_device_supporting_paulis()
+
         queue = [
-            qml.RX(1., wires=0, do_queue=False),
-            qml.PauliY(wires=1, do_queue=False),
-            qml.PauliZ(wires=2, do_queue=False),
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
         ]
 
-        observables = [qml.expval(qml.PauliZ(0, do_queue=False))]
+        observables = [qml.expval(qml.PauliZ(0))]
 
+        # Raises an error if queue or observables are invalid
         dev.check_validity(queue, observables)
 
-        # test an invalid operation
-        queue = [qml.RY(1., wires=0, do_queue=False)]
-        with self.assertRaisesRegex(qml.DeviceError, "Gate RY not supported"):
+    def test_check_validity_on_valid_queue_with_inverses(self,
+                                                         mock_device_supporting_paulis_and_inverse):
+        """Tests the function Device.check_validity with valid queue
+        and the inverse of operations"""
+        dev = mock_device_supporting_paulis_and_inverse()
+
+        queue = [
+            qml.PauliX(wires=0).inv(),
+            qml.PauliY(wires=1).inv(),
+            qml.PauliZ(wires=2).inv(),
+
+            qml.PauliX(wires=0).inv().inv(),
+            qml.PauliY(wires=1).inv().inv(),
+            qml.PauliZ(wires=2).inv().inv(),
+        ]
+
+        observables = [qml.expval(qml.PauliZ(0))]
+
+        # Raises an error if queue or observables are invalid
+        dev.check_validity(queue, observables)
+
+    def test_check_validity_with_not_supported_operation_inverse(self, mock_device_supporting_paulis_and_inverse):
+        """Tests the function Device.check_validity with an valid queue
+        and the inverse of not supported operations"""
+        dev = mock_device_supporting_paulis_and_inverse()
+
+        queue = [
+            qml.CNOT(wires=[0, 1]).inv(),
+        ]
+
+        observables = [qml.expval(qml.PauliZ(0))]
+
+        with pytest.raises(
+                DeviceError,
+                match="Gate {} not supported on device {}".format("CNOT", 'MockDevice'),
+        ):
             dev.check_validity(queue, observables)
 
-        # test an invalid observable with the same name
-        # as a valid operation
-        queue = [qml.PauliY(wires=0, do_queue=False)]
-        observables = [qml.expval(qml.PauliY(0, do_queue=False))]
-        with self.assertRaisesRegex(qml.DeviceError, "Observable PauliY not supported"):
+    def test_check_validity_on_tensor_support(self, mock_device_supporting_paulis):
+        """Tests the function Device.check_validity with tensor support capability"""
+        dev = mock_device_supporting_paulis()
+
+        queue = [
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
+        ]
+
+        observables = [qml.expval(qml.PauliZ(0) @ qml.PauliX(1))]
+
+        # mock device does not support Tensor product
+        with pytest.raises(DeviceError, match="Tensor observables not supported"):
             dev.check_validity(queue, observables)
 
-    def test_capabilities(self):
+    def test_check_validity_on_invalid_observable_with_tensor_support(self, monkeypatch):
+        """Tests the function Device.check_validity with tensor support capability
+        but with an invalid observable"""
+        queue = [
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
+        ]
+
+        observables = [qml.expval(qml.PauliZ(0) @ qml.Hadamard(1))]
+
+        D = Device
+        with monkeypatch.context() as m:
+            m.setattr(D, '__abstractmethods__', frozenset())
+            m.setattr(D, 'operations', ["PauliX", "PauliY", "PauliZ"])
+            m.setattr(D, 'observables', ["PauliX", "PauliY", "PauliZ"])
+            m.setattr(D, 'capabilities', lambda self: {"supports_tensor_observables": True})
+            m.setattr(D, 'short_name', "Dummy")
+
+            dev = D()
+
+            # mock device supports Tensor products but not hadamard
+            with pytest.raises(DeviceError, match="Observable Hadamard not supported"):
+                dev.check_validity(queue, observables)
+
+    def test_check_validity_on_invalid_queue(self, mock_device_supporting_paulis):
+        """Tests the function Device.check_validity with invalid queue and valid observables"""
+        dev = mock_device_supporting_paulis()
+
+        queue = [
+            qml.RX(1.0, wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
+        ]
+
+        observables = [qml.expval(qml.PauliZ(0))]
+
+        with pytest.raises(DeviceError, match="Gate RX not supported on device"):
+            dev.check_validity(queue, observables)
+
+    def test_check_validity_on_invalid_observable(self, mock_device_supporting_paulis):
+        """Tests the function Device.check_validity with valid queue and invalid observables"""
+        dev = mock_device_supporting_paulis()
+
+        queue = [
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
+        ]
+
+        observables = [qml.expval(qml.Hadamard(0))]
+
+        with pytest.raises(DeviceError, match="Observable Hadamard not supported on device"):
+            dev.check_validity(queue, observables)
+
+    def test_check_validity_on_invalid_queue_of_inverses(self, mock_device_supporting_paulis_and_inverse):
+        """Tests the function Device.check_validity with invalid queue and valid inverses of operations"""
+        dev = mock_device_supporting_paulis_and_inverse()
+
+        queue = [
+            qml.PauliY(wires=1).inv(),
+            qml.PauliZ(wires=2).inv(),
+            qml.RX(1.0, wires=0).inv(),
+        ]
+
+        observables = [qml.expval(qml.PauliZ(0))]
+
+        with pytest.raises(DeviceError, match="Gate RX not supported on device"):
+            dev.check_validity(queue, observables)
+
+    def test_supports_inverse(self, mock_device_supporting_paulis_and_inverse):
+        """Tests the function Device.supports_inverse on device which supports inverses"""
+        dev = mock_device_supporting_paulis_and_inverse()
+
+        assert dev.check_validity([qml.PauliZ(0).inv()], []) is None
+        assert dev.check_validity([], [qml.PauliZ(0).inv()]) is None
+
+    def test_supports_inverse_device_does_not_support_inverses(self, mock_device_supporting_paulis):
+        """Tests the function Device.supports_inverse on device which does not support inverses"""
+        dev = mock_device_supporting_paulis()
+
+        with pytest.raises(DeviceError, match="The inverse of gates are not supported on device {}".
+                format(dev.short_name)):
+            dev.check_validity([qml.PauliZ(0).inv()], [])
+
+        with pytest.raises(DeviceError, match="The inverse of gates are not supported on device {}".
+                format(dev.short_name)):
+            dev.check_validity([], [qml.PauliZ(0).inv()])
+
+    def test_args(self, mock_device):
+        """Test that the device requires correct arguments"""
+        with pytest.raises(qml.DeviceError, match="specified number of shots needs to be at least 1"):
+            Device(mock_device, shots=0)
+
+    @pytest.mark.parametrize('wires, expected', [(['a1', 'q', -1, 3], Wires(['a1', 'q', -1, 3])),
+                                                 (3, Wires([0, 1, 2])),
+                                                 ([3], Wires([3]))])
+    def test_wires_property(self, mock_device, wires, expected):
+        """Tests that the wires attribute is set correctly."""
+        dev = mock_device(wires=wires)
+        assert dev.wires == expected
+
+    def test_wire_map_property(self, mock_device):
+        """Tests that the wire_map is constructed correctly."""
+        dev = mock_device(wires=['a1', 'q', -1, 3])
+        expected = OrderedDict([(Wires('a1'), Wires(0)), (Wires('q'), Wires(1)),
+                                (Wires(-1), Wires(2)), (Wires(3), Wires(3))])
+        assert dev.wire_map == expected
+
+    def test_execution_property(self, mock_device):
+        """Tests that the number of executions is initialised correctly"""
+        dev = mock_device()
+        expected = 0
+        assert dev.num_executions == expected
+
+    def test_device_executions(self):
+        """Test the number of times a device is executed over a QNode's
+        lifetime is tracked by `num_executions`"""
+
+        # test default Gaussian device
+        dev_gauss = qml.device("default.gaussian", wires=1)
+
+        def circuit_gauss(mag_alpha, phase_alpha, phi):
+            qml.Displacement(mag_alpha, phase_alpha, wires=0)
+            qml.Rotation(phi, wires=0)
+            return qml.expval(qml.NumberOperator(0))
+
+        node_gauss = BaseQNode(circuit_gauss, dev_gauss)
+        num_evals_gauss = 12
+
+        for i in range(num_evals_gauss):
+            node_gauss(0.015, 0.02, 0.005)
+        assert dev_gauss.num_executions == num_evals_gauss
+
+
+class TestClassmethods:
+    """Test the classmethods of Device"""
+
+    def test_capabilities(self, mock_device_with_capabilities):
         """check that device can give a dict of further capabilities"""
-        self.logTestName()
+        dev = mock_device_with_capabilities()
 
-        for dev in self.dev.values():
-            caps = dev.capabilities()
-            self.assertTrue(isinstance(caps, dict))
+        assert dev.capabilities() == mock_device_capabilities
 
-    @patch.object(DefaultQubit, 'pre_measure', lambda self: log.info(self.op_queue))
-    def test_op_queue(self):
-        """Check that peaking at the operation queue works correctly"""
-        self.logTestName()
 
-        # queue some gates
-        queue = []
-        queue.append(qml.RX(0.543, wires=[0], do_queue=False))
-        queue.append(qml.CNOT(wires=[0, 1], do_queue=False))
+class TestOperations:
+    """Tests the logic related to operations"""
 
-        dev = qml.device('default.qubit', wires=2)
+    def test_shots_setter(self, mock_device):
+        """Tests that the property setter of shots changes the number of shots."""
+        dev = mock_device()
 
-        # outside of an execution context, error will be raised
-        with self.assertRaisesRegex(ValueError, "Cannot access the operation queue outside of the execution context!"):
+        assert dev._shots == 1000
+
+        dev.shots = 10
+
+        assert dev._shots == 10
+
+    @pytest.mark.parametrize("shots", [-10, 0])
+    def test_shots_setter_error(self, mock_device, shots):
+        """Tests that the property setter of shots raises an error if the requested number of shots
+        is erroneous."""
+        dev = mock_device()
+
+        with pytest.raises(qml.DeviceError, match="The specified number of shots needs to be at least 1"):
+            dev.shots = shots
+
+    def test_op_queue_accessed_outside_execution_context(self, mock_device):
+        """Tests that a call to op_queue outside the execution context raises the correct error"""
+        dev = mock_device()
+
+        with pytest.raises(
+                ValueError, match="Cannot access the operation queue outside of the execution context!"
+        ):
             dev.op_queue
 
-        # inside of the execute method, it works
-        with self.assertLogs(level='INFO') as l:
-            dev.execute(queue, [qml.expval(qml.PauliX(0, do_queue=False))])
-            self.assertEqual(len(l.output), 1)
-            self.assertEqual(len(l.records), 1)
-            self.assertIn('INFO:root:[<pennylane.ops.qubit.RX object', l.output[0])
+    def test_op_queue_is_filled_at_pre_measure(self, mock_device_with_paulis_and_methods, monkeypatch):
+        """Tests that the op_queue is correctly filled when pre_measure is called and that accessing
+           op_queue raises no error"""
+        dev = mock_device_with_paulis_and_methods(wires=3)
 
-    @patch.object(DefaultQubit, 'pre_measure', lambda self: log.info(self.obs_queue))
-    def test_obs_queue(self):
-        """Check that peaking at the obs queue works correctly"""
-        self.logTestName()
+        queue = [
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
+        ]
 
-        # queue some gates
-        queue = []
-        queue.append(qml.RX(0.543, wires=[0], do_queue=False))
-        queue.append(qml.CNOT(wires=[0, 1], do_queue=False))
+        observables = [
+            qml.expval(qml.PauliZ(0)),
+            qml.var(qml.PauliZ(1)),
+            qml.sample(qml.PauliZ(2)),
+        ]
 
-        dev = qml.device('default.qubit', wires=2)
+        queue_at_pre_measure = []
 
-        # outside of an execution context, error will be raised
-        with self.assertRaisesRegex(ValueError, "Cannot access the observable value queue outside of the execution context!"):
+        with monkeypatch.context() as m:
+            m.setattr(Device, 'pre_measure', lambda self: queue_at_pre_measure.extend(self.op_queue))
+            dev.execute(queue, observables)
+
+        assert queue_at_pre_measure == queue
+
+    def test_op_queue_is_filled_during_execution(self, mock_device_with_paulis_and_methods, monkeypatch):
+        """Tests that the operations are properly applied and queued"""
+        dev = mock_device_with_paulis_and_methods(wires=3)
+
+        queue = [
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
+        ]
+
+        observables = [
+            qml.expval(qml.PauliZ(0)),
+            qml.var(qml.PauliZ(1)),
+            qml.sample(qml.PauliZ(2)),
+        ]
+
+        call_history = []
+        with monkeypatch.context() as m:
+            m.setattr(Device, 'apply', lambda self, op, wires, params: call_history.append([op, wires, params]))
+            dev.execute(queue, observables)
+
+        assert call_history[0] == ["PauliX", Wires([0]), []]
+        assert call_history[1] == ["PauliY", Wires([1]), []]
+        assert call_history[2] == ["PauliZ", Wires([2]), []]
+
+    def test_unsupported_operations_raise_error(self, mock_device_with_paulis_and_methods):
+        """Tests that the operations are properly applied and queued"""
+        dev = mock_device_with_paulis_and_methods()
+
+        queue = [
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.Hadamard(wires=2),
+        ]
+
+        observables = [
+            qml.expval(qml.PauliZ(0)),
+            qml.var(qml.PauliZ(1)),
+            qml.sample(qml.PauliZ(2)),
+        ]
+
+        with pytest.raises(DeviceError, match="Gate Hadamard not supported on device"):
+            dev.execute(queue, observables)
+
+
+class TestObservables:
+    """Tests the logic related to observables"""
+
+    # pylint: disable=no-self-use, redefined-outer-name
+
+    def test_obs_queue_accessed_outside_execution_context(self, mock_device):
+        """Tests that a call to op_queue outside the execution context raises the correct error"""
+        dev = mock_device()
+
+        with pytest.raises(
+                ValueError,
+                match="Cannot access the observable value queue outside of the execution context!",
+        ):
             dev.obs_queue
 
-        # inside of the execute method, it works
-        with self.assertLogs(level='INFO') as l:
-            dev.execute(queue, [qml.expval(qml.PauliX(0, do_queue=False))])
-            self.assertEqual(len(l.output), 1)
-            self.assertEqual(len(l.records), 1)
-            self.assertIn('INFO:root:[<pennylane.ops.qubit.PauliX object', l.output[0])
+    def test_obs_queue_is_filled_at_pre_measure(self, mock_device_with_paulis_and_methods, monkeypatch):
+        """Tests that the op_queue is correctly filled when pre_measure is called and that accessing
+           op_queue raises no error"""
+        dev = mock_device_with_paulis_and_methods(wires=3)
 
-    def test_execute(self):
-        """check that execution works on supported operations/observables"""
-        self.logTestName()
+        queue = [
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
+        ]
 
-        for dev in self.dev.values():
-            ops = dev.operations
-            exps = dev.observables
+        observables = [
+            qml.expval(qml.PauliZ(0)),
+            qml.var(qml.PauliZ(1)),
+            qml.sample(qml.PauliZ(2)),
+        ]
 
-            queue = []
-            for o in ops:
-                log.debug('Queueing gate %s...', o)
-                op = qml.ops.__getattribute__(o)
+        queue_at_pre_measure = []
 
-                if op.par_domain == 'A':
-                    # skip operations with array parameters, as there are too
-                    # many constraints to consider. These should be tested
-                    # directly within the plugin tests.
-                    continue
-                elif op.par_domain == 'N':
-                    params = np.asarray(np.random.random([op.num_params]), dtype=np.int64)
-                else:
-                    params = np.random.random([op.num_params])
+        with monkeypatch.context() as m:
+            m.setattr(Device, 'pre_measure', lambda self: queue_at_pre_measure.extend(self.obs_queue))
+            dev.execute(queue, observables)
 
-                queue.append(op(*params, wires=list(range(op.num_wires)), do_queue=False))
+        assert queue_at_pre_measure == observables
 
-            temp = [isinstance(op, qml.operation.CV) for op in queue]
-            if all(temp):
-                expval = dev.execute(queue, [qml.expval(qml.X(0, do_queue=False))])
-            else:
-                expval = dev.execute(queue, [qml.expval(qml.PauliX(0, do_queue=False))])
+    def test_obs_queue_is_filled_during_execution(self, monkeypatch, mock_device_with_paulis_and_methods):
+        """Tests that the operations are properly applied and queued"""
+        dev = mock_device_with_paulis_and_methods(wires=3)
 
-            self.assertTrue(isinstance(expval, np.ndarray))
+        observables = [
+            qml.expval(qml.PauliX(0)),
+            qml.var(qml.PauliY(1)),
+            qml.sample(qml.PauliZ(2)),
+        ]
 
-    def test_sample_attribute_error(self):
-        """Check that an error is raised if a required attribute
-           is not present in a sampled observable"""
-        self.logTestName()
+        # capture the arguments passed to dev methods
+        expval_args = []
+        var_args = []
+        sample_args = []
+        with monkeypatch.context() as m:
+            m.setattr(Device, 'expval', lambda self, *args: expval_args.extend(args))
+            m.setattr(Device, 'var', lambda self, *args: var_args.extend(args))
+            m.setattr(Device, 'sample', lambda self, *args: sample_args.extend(args))
+            dev.execute([], observables)
 
-        dev = qml.device('default.qubit', wires=2)
+        assert expval_args == ["PauliX", Wires([0]), []]
+        assert var_args == ["PauliY", Wires([1]), []]
+        assert sample_args == ["PauliZ", Wires([2]), []]
 
-        queue = [qml.RX(0.543, wires=[0], do_queue=False)]
+    def test_unsupported_observables_raise_error(self, mock_device_with_paulis_and_methods):
+        """Tests that the operations are properly applied and queued"""
+        dev = mock_device_with_paulis_and_methods()
 
-        # Make a sampling observable but delete its num_samples attribute
-        obs = qml.sample(qml.PauliZ(0, do_queue=False), n=10)
-        del obs.num_samples
-        obs = [obs]
+        queue = [
+            qml.PauliX(wires=0),
+            qml.PauliY(wires=1),
+            qml.PauliZ(wires=2),
+        ]
 
-        with self.assertRaisesRegex(qml.DeviceError, "Number of samples not specified for observable"):
-            dev.execute(queue, obs)
+        observables = [
+            qml.expval(qml.Hadamard(0)),
+            qml.var(qml.PauliZ(1)),
+            qml.sample(qml.PauliZ(2)),
+        ]
 
-    def test_validity(self):
-        """check that execution throws error on unsupported operations/observables"""
-        self.logTestName()
+        with pytest.raises(DeviceError, match="Observable Hadamard not supported on device"):
+            dev.execute(queue, observables)
 
-        for dev in self.dev.values():
-            ops = dev.operations
-            all_ops = set(qml.ops.__all_ops__)
+    def test_unsupported_observable_return_type_raise_error(self, mock_device_with_paulis_and_methods):
+        """Check that an error is raised if the return type of an observable is unsupported"""
+        dev = mock_device_with_paulis_and_methods()
 
-            for o in all_ops-ops:
-                op = getattr(qml.ops, o)
+        queue = [qml.PauliX(wires=0)]
 
-                if op.par_domain == 'A':
-                    # skip operations with array parameters, as there are too
-                    # many constraints to consider. These should be tested
-                    # directly within the plugin tests.
-                    continue
-                elif op.par_domain == 'N':
-                    params = np.asarray(np.random.random([op.num_params]), dtype=np.int64)
-                else:
-                    params = np.random.random([op.num_params])
+        # Make a observable without specifying a return operation upon measuring
+        obs = qml.PauliZ(0)
+        obs.return_type = "SomeUnsupportedReturnType"
+        observables = [obs]
 
-                queue = [op(*params, wires=list(range(op.num_wires)), do_queue=False)]
-
-                temp = isinstance(queue[0], qml.operation.CV)
-
-                with self.assertRaisesRegex(qml.DeviceError, 'not supported on device'):
-                    if temp:
-                        expval = dev.execute(queue, [qml.expval(qml.X(0, do_queue=False))])
-                    else:
-                        expval = dev.execute(queue, [qml.expval(qml.PauliX(0, do_queue=False))])
-
-            exps = dev.observables
-            all_exps = set(qml.ops.__all_obs__)
-
-            for g in all_exps-exps:
-                op = getattr(qml.ops, g)
-
-                if op.par_domain == 'A':
-                    # skip observables with array parameters, as there are too
-                    # many constraints to consider. These should be tested
-                    # directly within the plugin tests.
-                    continue
-                elif op.par_domain == 'N':
-                    params = np.asarray(np.random.random([op.num_params]), dtype=np.int64)
-                else:
-                    params = np.random.random([op.num_params])
-
-                queue = [op(*params, wires=list(range(op.num_wires)), do_queue=False)]
-
-                temp = isinstance(queue[0], qml.operation.CV)
-
-                with self.assertRaisesRegex(qml.DeviceError, 'not supported on device'):
-                    if temp:
-                        expval = dev.execute([qml.Rotation(0.5, wires=0, do_queue=False)], queue)
-                    else:
-                        expval = dev.execute([qml.RX(0.5, wires=0, do_queue=False)], queue)
+        with pytest.raises(QuantumFunctionError, match="Unsupported return type specified for observable"):
+            dev.execute(queue, observables)
 
 
-class InitDeviceTests(BaseTest):
+class TestParameters:
+    """Test for checking device parameter mappings"""
+
+    def test_parameters_accessed_outside_execution_context(self, mock_device):
+        """Tests that a call to parameters outside the execution context raises the correct error"""
+        dev = mock_device()
+
+        with pytest.raises(
+                ValueError,
+                match="Cannot access the free parameter mapping outside of the execution context!",
+        ):
+            dev.parameters
+
+    def test_parameters_available_at_pre_measure(self, mock_device, monkeypatch):
+        """Tests that the parameter mapping is available when pre_measure is called and that accessing
+           Device.parameters raises no error"""
+        dev = mock_device(wires=3)
+
+        p0 = 0.54
+        p1 = -0.32
+
+        queue = [
+            qml.RX(p0, wires=0),
+            qml.PauliY(wires=1),
+            qml.Rot(0.432, 0.123, p1, wires=2),
+        ]
+
+        parameters = {0: (0, 0), 1: (2, 3)}
+
+        observables = [
+            qml.expval(qml.PauliZ(0)),
+            qml.var(qml.PauliZ(1)),
+            qml.sample(qml.PauliZ(2)),
+        ]
+
+        p_mapping = {}
+
+        with monkeypatch.context() as m:
+            m.setattr(Device, "pre_measure", lambda self: p_mapping.update(self.parameters))
+            dev.execute(queue, observables, parameters=parameters)
+
+        assert p_mapping == parameters
+
+
+class TestDeviceInit:
     """Tests for device loader in __init__.py"""
 
     def test_no_device(self):
-        """Test exception raised for a device that doesn't exist"""
-        self.logTestName()
+        """Test that an exception is raised for a device that doesn't exist"""
 
-        with self.assertRaisesRegex(qml.DeviceError, 'Device does not exist'):
-            qml.device('None', wires=0)
+        with pytest.raises(DeviceError, match="Device does not exist"):
+            qml.device("None", wires=0)
 
-    @patch.object(qml, 'version', return_value='0.0.1')
-    def test_outdated_API(self, n):
-        """Test exception raised if plugin that targets an old API is loaded"""
-        self.logTestName()
+    def test_outdated_API(self, monkeypatch):
+        """Test that an exception is raised if plugin that targets an old API is loaded"""
 
-        with self.assertRaisesRegex(qml.DeviceError, 'plugin requires PennyLane versions'):
-            qml.device('default.qubit', wires=0)
+        with monkeypatch.context() as m:
+            m.setattr(qml, "version", lambda: "0.0.1")
+            with pytest.raises(DeviceError, match="plugin requires PennyLane versions"):
+                qml.device("default.qubit", wires=0)
+
+    def test_refresh_entrypoints(self, monkeypatch):
+        """Test that new entrypoints are found by the refresh_devices function"""
+        assert qml.plugin_devices
+
+        with monkeypatch.context() as m:
+            # remove all entry points
+            m.setattr(pkg_resources, "iter_entry_points", lambda name: [])
+
+            # reimporting PennyLane within the context sets qml.plugin_devices to {}
+            importlib.reload(qml)
+
+            # since there are no entry points, there will be no plugin devices
+            assert not qml.plugin_devices
+
+        # outside of the context, entrypoints will now be found
+        assert not qml.plugin_devices
+        qml.refresh_devices()
+        assert qml.plugin_devices
+
+        # Test teardown: re-import PennyLane to revert all changes and
+        # restore the plugin_device dictionary
+        importlib.reload(qml)
+
+    def test_hot_refresh_entrypoints(self, monkeypatch):
+        """Test that new entrypoints are found by the device loader if not currently present"""
+        assert qml.plugin_devices
+
+        with monkeypatch.context() as m:
+            # remove all entry points
+            m.setattr(pkg_resources, "iter_entry_points", lambda name: [])
+
+            # reimporting PennyLane within the context sets qml.plugin_devices to {}
+            importlib.reload(qml)
+
+            m.setattr(qml, "refresh_devices", lambda: None)
+            assert not qml.plugin_devices
+
+            # since there are no entry points, there will be no plugin devices
+            with pytest.raises(DeviceError, match="Device does not exist"):
+                qml.device("default.qubit", wires=0)
+
+        # outside of the context, entrypoints will now be found automatically
+        assert not qml.plugin_devices
+        dev = qml.device("default.qubit", wires=0)
+        assert qml.plugin_devices
+        assert dev.short_name == "default.qubit"
+
+        # Test teardown: re-import PennyLane to revert all changes and
+        # restore the plugin_device dictionary
+        importlib.reload(qml)
 
 
+class TestBatchExecution:
+    """Tests for the batch_execute method."""
 
-if __name__ == '__main__':
-    print('Testing PennyLane version ' + qml.version() + ', Device class.')
-    # run the tests in this file
-    suite = unittest.TestSuite()
-    for t in (DeviceTest, InitDeviceTests):
-        ttt = unittest.TestLoader().loadTestsFromTestCase(t)
-        suite.addTests(ttt)
+    with qml.tape.QuantumTape() as tape1:
+        qml.PauliX(wires=0)
+        qml.expval(qml.PauliZ(wires=0)), qml.expval(qml.PauliZ(wires=1))
 
-    unittest.TextTestRunner().run(suite)
+    with qml.tape.JacobianTape() as tape2:
+        qml.PauliX(wires=0)
+        qml.expval(qml.PauliZ(wires=0))
+
+    @pytest.mark.parametrize("n_tapes", [1, 2, 3])
+    def test_calls_to_execute(self, n_tapes, mocker, mock_device_with_paulis_and_methods):
+        """Tests that the device's execute method is called the correct number of times."""
+
+        dev = mock_device_with_paulis_and_methods(wires=2)
+        spy = mocker.spy(Device, "execute")
+
+        tapes = [self.tape1] * n_tapes
+        dev.batch_execute(tapes)
+
+        assert spy.call_count == n_tapes
+
+    @pytest.mark.parametrize("n_tapes", [1, 2, 3])
+    def test_calls_to_reset(self, n_tapes, mocker, mock_device_with_paulis_and_methods):
+        """Tests that the device's reset method is called the correct number of times."""
+
+        dev = mock_device_with_paulis_and_methods(wires=2)
+        spy = mocker.spy(Device, "reset")
+
+        tapes = [self.tape1] * n_tapes
+        dev.batch_execute(tapes)
+
+        assert spy.call_count == n_tapes
+
+    @pytest.mark.parametrize("n_tapes", [1, 2, 3])
+    def test_result(self, n_tapes, mock_device_with_paulis_and_methods, tol):
+        """Tests that the result has the correct shape and entry types."""
+
+        dev = mock_device_with_paulis_and_methods(wires=2)
+        tapes = [self.tape1, self.tape2]
+        res = dev.batch_execute(tapes)
+
+        assert len(res) == 2
+        assert np.allclose(res[0], dev.execute(self.tape1.operations, self.tape1.observables), rtol=tol, atol=0)
+        assert np.allclose(res[1], dev.execute(self.tape2.operations, self.tape2.observables), rtol=tol, atol=0)
+
+    def test_result_empty_tape(self, mock_device_with_paulis_and_methods, tol):
+        """Tests that the result has the correct shape and entry types for empty tapes."""
+
+        dev = mock_device_with_paulis_and_methods(wires=2)
+
+        empty_tape = qml.tape.QuantumTape()
+        tapes = [empty_tape] * 3
+        res = dev.batch_execute(tapes)
+
+        assert len(res) == 3
+        assert np.allclose(res[0], dev.execute(empty_tape.operations, empty_tape.observables), rtol=tol, atol=0)

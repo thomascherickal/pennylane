@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,51 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Submodule containing core quantum operations supported by PennyLane.
 
-.. currentmodule:: pennylane.ops
+# pylint: disable=too-few-public-methods,function-redefined
 
-PennyLane supports a collection of built-in quantum operations and observables,
-including both discrete-variable (DV) operations as used in the qubit model,
-and continuous-variable (CV) operations as used in the qumode model of quantum
-computation.
-
-Here, we summarize the built-in operations and observables supported by PennyLane,
-as well as the conventions chosen for their implementation.
-
-.. note::
-
-    When writing a plugin device for PennyLane, make sure that your plugin
-    supports as many of the PennyLane built-in operations defined here as possible.
-
-    If the convention differs between the built-in PennyLane operation
-    and the corresponding operation in the targeted framework, ensure that the
-    conversion between the two conventions takes places automatically
-    by the plugin device.
-
-
-Architecture-specific operations
---------------------------------
-
-.. rst-class:: contents local topic
-
-.. toctree::
-    :maxdepth: 2
-
-    ops/qubit
-    ops/cv
-
-
-General observables
--------------------
-
-Observables that can be used on both qubit and CV devices.
 """
-#pylint: disable=too-few-public-methods,function-redefined
+This module contains core quantum operations supported by PennyLane -
+such as gates, state preparations and observables.
+"""
+import numpy as np
+
+from pennylane.operation import AnyWires, Observable, CVObservable
 
 from .cv import *
 from .qubit import *
-
+from .channel import *
 
 from .cv import __all__ as _cv__all__
 from .cv import ops as _cv__ops__
@@ -65,11 +34,11 @@ from .qubit import __all__ as _qubit__all__
 from .qubit import ops as _qubit__ops__
 from .qubit import obs as _qubit__obs__
 
-from pennylane.operation import Observable, CVObservable
+from .channel import __all__ as _channel__ops__
 
 
-class Identity(CVObservable, Observable):
-    r"""pennylane.ops.Identity(wires)
+class Identity(CVObservable):
+    r"""pennylane.Identity(wires)
     The identity observable :math:`\I`.
 
     The expectation of this observable
@@ -80,13 +49,30 @@ class Identity(CVObservable, Observable):
     corresponds to the trace of the quantum state, which in exact
     simulators should always be equal to 1.
     """
-    num_wires = 0
+    num_wires = AnyWires
     num_params = 0
     par_domain = None
     grad_method = None
-    ev_order = None
+
+    ev_order = 1
+    eigvals = np.array([1, 1])
+
+    @classmethod
+    def _eigvals(cls, *params):
+        return cls.eigvals
+
+    @classmethod
+    def _matrix(cls, *params):
+        return np.eye(2)
+
+    @staticmethod
+    def _heisenberg_rep(p):
+        return np.array([1, 0, 0])
+
+    def diagonalizing_gates(self):
+        return []
 
 
-__all__ = _cv__all__ + _qubit__all__ + ["Identity"]
+__all__ = _cv__all__ + _qubit__all__ + _channel__ops__ + ["Identity"]
 __all_ops__ = list(_cv__ops__ | _qubit__ops__)
 __all_obs__ = list(_cv__obs__ | _qubit__obs__) + ["Identity"]

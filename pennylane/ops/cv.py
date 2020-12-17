@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 r"""
-.. _cv_ops:
-
-CV quantum operations
-=====================
-
-.. currentmodule:: pennylane.ops.cv
-
-**Module name:** :mod:`pennylane.ops.cv`
-
-This section contains the available built-in continuous-variable
+This module contains the available built-in continuous-variable
 quantum operations supported by PennyLane, as well as their conventions.
 
 .. todo:: Add gradient recipes for Gaussian state preparations
@@ -40,58 +31,15 @@ quantum operations supported by PennyLane, as well as their conventions.
    For the Heisenberg matrix representation of CV operations, we use the ordering
    :math:`(\hat{\mathbb{1}}, \hat{x}, \hat{p})` for single modes
    and :math:`(\hat{\mathbb{1}}, \hat{x}_1, \hat{p}_2, \hat{x}_1,\hat{p}_2)` for two modes .
-
-Gates
------
-
-.. autosummary::
-    Rotation
-    Squeezing
-    Displacement
-    Beamsplitter
-    TwoModeSqueezing
-    QuadraticPhase
-    ControlledAddition
-    ControlledPhase
-    Kerr
-    CrossKerr
-    CubicPhase
-    Interferometer
-
-
-State preparation
------------------
-
-.. autosummary::
-    CoherentState
-    SqueezedState
-    DisplacedSqueezedState
-    ThermalState
-    GaussianState
-    FockState
-    FockStateVector
-    FockDensityMatrix
-    CatState
-
-Observables
------------
-
-.. autosummary::
-    NumberOperator
-    X
-    P
-    QuadOperator
-    PolyXP
-    FockStateProjector
-
-
-Code details
-~~~~~~~~~~~~
 """
+# As the qubit based ``decomposition``, ``_matrix``, ``diagonalizing_gates``
+# abstract methods are not defined in the CV case, disabling the related check
+# pylint: disable=abstract-method
+import math
 import numpy as np
 from scipy.linalg import block_diag
 
-from pennylane.operation import CVOperation, CVObservable
+from pennylane.operation import AnyWires, CVOperation, CVObservable
 
 
 def _rotation(phi, bare=False):
@@ -112,8 +60,8 @@ def _rotation(phi, bare=False):
     Returns:
         array[float]: transformation matrix
     """
-    c = np.cos(phi)
-    s = np.sin(phi)
+    c = math.cos(phi)
+    s = math.sin(phi)
     temp = np.array([[c, -s], [s, c]])
     if bare:
         return temp
@@ -122,7 +70,7 @@ def _rotation(phi, bare=False):
 
 class Rotation(CVOperation):
     r"""pennylane.Rotation(phi, wires)
-    Phase space rotation
+    Phase space rotation.
 
     .. math::
         R(\phi) = \exp\left(i \phi \ad \a\right)=\exp\left(i \frac{\phi}{2}
@@ -190,12 +138,14 @@ class Squeezing(CVOperation):
     grad_method = "A"
 
     shift = 0.1
-    grad_recipe = [(0.5 / np.sinh(shift), shift), None]
+    multiplier = 0.5 / math.sinh(shift)
+    a = 1
+    grad_recipe = ([[multiplier, a, shift], [-multiplier, a, -shift]], None)
 
     @staticmethod
     def _heisenberg_rep(p):
         R = _rotation(p[1] / 2)
-        return R @ np.diag([1, np.exp(-p[0]), np.exp(p[0])]) @ R.T
+        return R @ np.diag([1, math.exp(-p[0]), math.exp(p[0])]) @ R.T
 
 
 class Displacement(CVOperation):
@@ -232,12 +182,14 @@ class Displacement(CVOperation):
     grad_method = "A"
 
     shift = 0.1
-    grad_recipe = [(0.5 / shift, shift), None]
+    multiplier = 0.5 / shift
+    a = 1
+    grad_recipe = ([[multiplier, a, shift], [-multiplier, a, -shift]], None)
 
     @staticmethod
     def _heisenberg_rep(p):
-        c = np.cos(p[1])
-        s = np.sin(p[1])
+        c = math.cos(p[1])
+        s = math.sin(p[1])
         scale = 2  # sqrt(2 * hbar)
         return np.array([[1, 0, 0], [scale * c * p[0], 1, 0], [scale * s * p[0], 0, 1]])
 
@@ -283,8 +235,8 @@ class Beamsplitter(CVOperation):
     @staticmethod
     def _heisenberg_rep(p):
         R = _rotation(p[1], bare=True)
-        c = np.cos(p[0])
-        s = np.sin(p[0])
+        c = math.cos(p[0])
+        s = math.sin(p[0])
         U = c * np.eye(5)
         U[0, 0] = 1
         U[1:3, 3:5] = -s * R.T
@@ -330,15 +282,18 @@ class TwoModeSqueezing(CVOperation):
     par_domain = "R"
 
     grad_method = "A"
+
     shift = 0.1
-    grad_recipe = [(0.5 / np.sinh(shift), shift), None]
+    multiplier = 0.5 / math.sinh(shift)
+    a = 1
+    grad_recipe = ([[multiplier, a, shift], [-multiplier, a, -shift]], None)
 
     @staticmethod
     def _heisenberg_rep(p):
         R = _rotation(p[1], bare=True)
 
-        S = np.sinh(p[0]) * np.diag([1, -1])
-        U = np.cosh(p[0]) * np.identity(5)
+        S = math.sinh(p[0]) * np.diag([1, -1])
+        U = math.cosh(p[0]) * np.identity(5)
 
         U[0, 0] = 1
         U[1:3, 3:5] = S @ R.T
@@ -378,8 +333,11 @@ class QuadraticPhase(CVOperation):
     par_domain = "R"
 
     grad_method = "A"
+
     shift = 0.1
-    grad_recipe = [(0.5 / shift, shift)]
+    multiplier = 0.5 / shift
+    a = 1
+    grad_recipe = ([[multiplier, a, shift], [-multiplier, a, -shift]],)
 
     @staticmethod
     def _heisenberg_rep(p):
@@ -423,8 +381,11 @@ class ControlledAddition(CVOperation):
     par_domain = "R"
 
     grad_method = "A"
+
     shift = 0.1
-    grad_recipe = [(0.5 / shift, shift)]
+    multiplier = 0.5 / shift
+    a = 1
+    grad_recipe = ([[multiplier, a, shift], [-multiplier, a, -shift]],)
 
     @staticmethod
     def _heisenberg_rep(p):
@@ -469,8 +430,11 @@ class ControlledPhase(CVOperation):
     par_domain = "R"
 
     grad_method = "A"
+
     shift = 0.1
-    grad_recipe = [(0.5 / shift, shift)]
+    multiplier = 0.5 / shift
+    a = 1
+    grad_recipe = ([[multiplier, a, shift], [-multiplier, a, -shift]],)
 
     @staticmethod
     def _heisenberg_rep(p):
@@ -567,9 +531,9 @@ class Interferometer(CVOperation):
 
     **Details:**
 
-    * None (applied to the entire subsystem)
+    * Number of wires: Any
     * Number of parameters: 1
-    * Gradient recipe: None (uses finite difference)
+    * Gradient recipe: None
     * Heisenberg representation:
 
       .. math:: M = \begin{bmatrix}
@@ -584,7 +548,7 @@ class Interferometer(CVOperation):
         wires (Sequence[int] or int): the wires the operation acts on
     """
     num_params = 1
-    num_wires = 0
+    num_wires = AnyWires
     par_domain = "A"
     grad_method = None
     grad_recipe = None
@@ -592,11 +556,11 @@ class Interferometer(CVOperation):
     @staticmethod
     def _heisenberg_rep(p):
         N = len(p[0])
-        X = p[0].real
-        Y = p[0].imag
+        A = p[0].real
+        B = p[0].imag
 
         rows = np.arange(2 * N).reshape(2, -1).T.flatten()
-        S = np.vstack([np.hstack([X, -Y]), np.hstack([Y, X])])[:, rows][rows]
+        S = np.vstack([np.hstack([A, -B]), np.hstack([B, A])])[:, rows][rows]
 
         M = np.eye(2 * N + 1)
         M[1 : 2 * N + 1, 1 : 2 * N + 1] = S
@@ -667,7 +631,7 @@ class DisplacedSqueezedState(CVOperation):
     **Details:**
 
     * Number of wires: 1
-    * Number of parameters: 3
+    * Number of parameters: 4
     * Gradient recipe: None (uses finite difference)
 
     Args:
@@ -709,16 +673,16 @@ class GaussianState(CVOperation):
 
     **Details:**
 
-    * Number of wires: None (applied to the entire subsystem)
-    * Number of parameters: 1
-    * Gradient recipe: None (uses finite difference)
+    * Number of wires: Any
+    * Number of parameters: 2
+    * Gradient recipe: None
 
     Args:
         r (array): a length :math:`2N` vector of means, of the
             form :math:`(\x_0,\dots,\x_{N-1},\p_0,\dots,\p_{N-1})`
         V (array): the :math:`2N\times 2N` (real and positive definite) covariance matrix
     """
-    num_wires = 0
+    num_wires = AnyWires
     num_params = 2
     par_domain = "A"
     grad_method = "F"
@@ -750,7 +714,7 @@ class FockStateVector(CVOperation):
 
     **Details:**
 
-    * Number of wires: None (applied to the entire subsystem)
+    * Number of wires: Any
     * Number of parameters: 1
     * Gradient recipe: None (uses finite difference)
 
@@ -758,7 +722,7 @@ class FockStateVector(CVOperation):
         state (array): a single ket vector, for single mode state preparation,
             or a multimode ket, with one array dimension per mode
     """
-    num_wires = 0
+    num_wires = AnyWires
     num_params = 1
     par_domain = "A"
     grad_method = "F"
@@ -770,7 +734,7 @@ class FockDensityMatrix(CVOperation):
 
     **Details:**
 
-    * Number of wires: None (applied to the entire subsystem)
+    * Number of wires: Any
     * Number of parameters: 1
     * Gradient recipe: None (uses finite difference)
 
@@ -778,7 +742,7 @@ class FockDensityMatrix(CVOperation):
         state (array): a single mode matrix :math:`\rho_{ij}`, or
             a multimode tensor :math:`\rho_{ij,kl,\dots,mn}`, with two indices per mode
     """
-    num_wires = 0
+    num_wires = AnyWires
     num_params = 1
     par_domain = "A"
     grad_method = "F"
@@ -859,12 +823,68 @@ class NumberOperator(CVObservable):
         return np.diag([-0.5, 0.5 / hbar, 0.5 / hbar])
 
 
+class TensorN(CVObservable):
+    r"""pennylane.ops.TensorN(wires)
+    The tensor product of the :class:`~.NumberOperator` acting on different wires.
+
+    If a single wire is defined, returns a :class:`~.NumberOperator` instance for convenient gradient computations.
+
+    When used with the :func:`~.expval` function, the expectation value
+    :math:`\langle \hat{n}_{i_0} \hat{n}_{i_1}\dots \hat{n}_{i_{N-1}}\rangle`
+    for a (sub)set of modes :math:`[i_0, i_1, \dots, i_{N-1}]` of the system is
+    returned.
+
+    **Details:**
+
+    * Number of wires: Any
+    * Number of parameters: 0
+
+    Args:
+        wires (Sequence[int] or int): the wire the operation acts on
+
+    .. UsageDetails::
+
+        Example for multiple modes:
+
+        >>> cv_obs = qml.TensorN(wires=[0, 1])
+        >>> cv_obs
+        TensorN(wires=[0, 1])
+        >>> cv_obs.ev_order is None
+        True
+
+        Example for a single mode (yields a :class:`~.NumberOperator`):
+
+        >>> cv_obs = qml.TensorN(wires=[1])
+        >>> cv_obs
+        NumberOperator(wires=[1])
+        >>> cv_obs.ev_order
+        2
+    """
+    num_wires = AnyWires
+    num_params = 0
+    par_domain = None
+    ev_order = None
+
+    def __new__(cls, *params, wires=None, do_queue=True):
+        # Custom definition for __new__ needed such that a NumberOperator can
+        # be returned when a single mode is defined
+
+        if wires is None:
+            wires = params[-1]
+            params = params[:-1]
+
+        if isinstance(wires, int) or len(wires) == 1:
+            return NumberOperator(*params, wires=wires, do_queue=do_queue)
+
+        return super().__new__(cls)
+
+
 class X(CVObservable):
     r"""pennylane.ops.X(wires)
     The position quadrature observable :math:`\hat{x}`.
 
     When used with the :func:`~.expval` function, the position expectation
-    value :math:`\braket{\hat{n}}` is returned. This corresponds to
+    value :math:`\braket{\hat{x}}` is returned. This corresponds to
     the mean displacement in the phase space along the :math:`x` axis.
 
     **Details:**
@@ -953,7 +973,7 @@ class QuadOperator(CVObservable):
     @staticmethod
     def _heisenberg_rep(p):
         phi = p[0]
-        return np.array([0, np.cos(phi), np.sin(phi)])  # TODO check
+        return np.array([0, math.cos(phi), math.sin(phi)])  # TODO check
 
 
 class PolyXP(CVObservable):
@@ -973,7 +993,7 @@ class PolyXP(CVObservable):
 
     **Details:**
 
-    * Number of wires: None (applied to the entire system)
+    * Number of wires: Any
     * Number of parameters: 1
     * Observable order: 2nd order in the quadrature operators
     * Heisenberg representation: :math:`A`
@@ -981,7 +1001,7 @@ class PolyXP(CVObservable):
     Args:
         q (array[float]): expansion coefficients
     """
-    num_wires = 0
+    num_wires = AnyWires
     num_params = 1
     par_domain = "A"
 
@@ -1021,7 +1041,7 @@ class FockStateProjector(CVObservable):
 
     **Details:**
 
-    * Number of wires: None (applied to any subset of wires)
+    * Number of wires: Any
     * Number of parameters: 1
     * Observable order: None (non-Gaussian)
 
@@ -1035,7 +1055,7 @@ class FockStateProjector(CVObservable):
             Note that ``len(n)==len(wires)``, and that ``len(n)`` cannot exceed the
             total number of wires in the QNode.
     """
-    num_wires = 0
+    num_wires = AnyWires
     num_params = 1
     par_domain = "A"
 
@@ -1068,7 +1088,15 @@ ops = {
 }
 
 
-obs = {"QuadOperator", "NumberOperator", "P", "X", "PolyXP", "FockStateProjector"}
+obs = {
+    "QuadOperator",
+    "NumberOperator",
+    "TensorN",
+    "P",
+    "X",
+    "PolyXP",
+    "FockStateProjector",
+}
 
 
 __all__ = list(ops | obs)

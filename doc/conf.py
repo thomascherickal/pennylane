@@ -12,7 +12,7 @@
 #
 # All configuration values have a default; values that are commented out
 # serve to show the default.
-
+import pyscf
 import sys, os, re
 
 # If extensions (or modules to document with autodoc) are in another directory,
@@ -20,6 +20,7 @@ import sys, os, re
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('_ext'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath('.')), 'doc'))
 
 # -- General configuration ------------------------------------------------
 
@@ -39,17 +40,48 @@ extensions = [
     'sphinx.ext.inheritance_diagram',
     'sphinx.ext.viewcode',
     'sphinxcontrib.bibtex',
-    'edit_on_github'
-    # 'nbsphinx'
+    'edit_on_github',
+    'sphinx.ext.graphviz',
+    # 'sphinx_gallery.gen_gallery',
+    "sphinx.ext.intersphinx",
+    "sphinx_automodapi.automodapi",
+    'sphinx_copybutton',
+    "m2r"
 ]
 
-# nbsphinx settings
+source_suffix = ['.rst', '.md']
 
-exclude_patterns = ['_build', '**.ipynb_checkpoints', 'tutorials/.ipynb_checkpoints', '*-checkpoint.ipynb']
-nbsphinx_execute = 'never'
-nbsphinx_epilog = """
-.. note:: :download:`Click here <../{{env.docname}}.ipynb>` to download this gallery page as an interactive Jupyter notebook.
-"""
+autosummary_generate = True
+autosummary_imported_members = False
+automodapi_toctreedirnm = "code/api"
+automodsumm_inherited_members = True
+
+
+intersphinx_mapping = {"https://pennylane.ai/qml/": None}
+mathjax_path = "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"
+
+from glob import glob
+import shutil
+import os
+import warnings
+
+# sphinx_gallery_conf = {
+#     # path to your example scripts
+#     'examples_dirs': '../examples',
+#     # path where to save gallery generated examples
+#     'gallery_dirs': 'tutorials',
+#     # build files that start 'pennylane_run'
+#     'filename_pattern': r'pennylane_run',
+#     # first notebook cell in generated Jupyter notebooks
+#     'first_notebook_cell': "%matplotlib inline",
+#     # thumbnail size
+#     'thumbnail_size': (400, 400),
+# }
+
+# Remove warnings that occur when generating the the tutorials
+warnings.filterwarnings("ignore", category=UserWarning, message=r"Matplotlib is currently using agg")
+warnings.filterwarnings("ignore", category=FutureWarning, message=r"Passing \(type, 1\) or '1type' as a synonym of type is deprecated.+")
+warnings.filterwarnings("ignore", category=UserWarning, message=r".+?Compilation using quilc will not be available\.")
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates', 'xanadu_theme']
@@ -65,10 +97,12 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'PennyLane'
-copyright = """
-    Ville Bergholm, Josh Izaac, Maria Schuld, Christian Gogolin, Carsten Blank, Keri McKiernan, and Nathan Killoran. <br>
+copyright = """\
+Ville Bergholm, Josh Izaac, Maria Schuld, Christian Gogolin, M. Sohaib Alam, Shahnawaz Ahmed,
+Juan Miguel Arrazola, Carsten Blank, Alain Delgado, Soran Jahangiri, Keri McKiernan, Johannes Jakob Meyer,
+Zeyue Niu, Antal Száva, and Nathan Killoran. <br>
 PennyLane: Automatic differentiation of hybrid quantum-classical computations. arXiv:1811.04968, 2018.<br>
-&copy; Copyright 2018, Xanadu Quantum Technologies Inc."""
+&copy; Copyright 2018-2020, Xanadu Quantum Technologies Inc."""
 author = 'Xanadu Inc.'
 
 add_module_names = False
@@ -78,6 +112,32 @@ add_module_names = False
 # built documents.
 
 import pennylane
+
+try:
+    import pennylane_qchem
+except ImportError:
+    from unittest.mock import MagicMock
+
+    class Mock(MagicMock):
+        __name__ = 'foo'
+        __repr__ = lambda self: __name__
+
+        @classmethod
+        def __getattr__(cls, name):
+            return MagicMock()
+
+    MOCK_MODULES = [
+        'pennylane_qchem',
+        'pennylane_qchem.qchem',
+        ]
+
+    mock_fn = Mock(__name__='foo')
+    mock_fns = {"__all__": list(), "__dir__": list(), "__dict__": dict()}
+
+    mock = Mock(**mock_fns)
+    for mod_name in MOCK_MODULES:
+        sys.modules[mod_name] = mock
+
 # The full version, including alpha/beta/rc tags.
 release = pennylane.__version__
 
@@ -263,9 +323,22 @@ html_theme_options = {
 
     # Allow the project link to be overriden to a custom URL.
     # "projectlink": "http://myproject.url",
+
+    "large_toc": True,
+    # colors
+    "navigation_button": "#19b37b",
+    "navigation_button_hover": "#0e714d",
+    "toc_caption": "#19b37b",
+    "toc_hover": "#19b37b",
+    "table_header_bg": "#edf7f4",
+    "table_header_border": "#19b37b",
+    "download_button": "#19b37b",
+    # gallery options
+    # "github_repo": "PennyLaneAI/pennylane",
+    # "gallery_dirs": "tutorials",
 }
 
-edit_on_github_project = 'XanaduAI/pennylane'
+edit_on_github_project = 'PennyLaneAI/pennylane'
 edit_on_github_branch = 'master/doc'
 
 # -- Options for HTMLHelp output ------------------------------------------
@@ -335,4 +408,10 @@ autodoc_member_order = 'bysource'
 # inheritance_diagram graphviz attributes
 inheritance_node_attrs = dict(color='lightskyblue1', style='filled')
 
+from directives import UsageDetails, CustomGalleryItemDirective, TitleCardDirective
 
+def setup(app):
+    app.add_directive('customgalleryitem', CustomGalleryItemDirective)
+    app.add_directive('titlecard', TitleCardDirective)
+    app.add_directive("usagedetails", UsageDetails)
+    app.add_stylesheet('xanadu_gallery.css')

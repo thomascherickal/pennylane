@@ -1,0 +1,12 @@
+fixes:
+  - "pennylane_qchem/::qchem/pennylane_qchem/"
+
+ignore:
+  - "pennylane/devices/tests/*"
+
+codecov:
+  notify:
+    after_n_builds: 7
+
+comment:
+  after_n_builds: 7

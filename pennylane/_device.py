@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,178 +12,245 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Device base class
-=================
-
-**Module name:** :mod:`pennylane._device`
-
-.. currentmodule:: pennylane._device
-
-This module contains the :class:`Device` abstract base class. To write a plugin containing a PennyLane-compatible device, :class:`Device`
-must be subclassed, and the appropriate class attributes and methods
-implemented. For examples of subclasses of :class:`Device`, see :class:`~.DefaultQubit`,
-:class:`~.DefaultGaussian`, or the `StrawberryFields <https://pennylane-sf.readthedocs.io/>`_
-and `ProjectQ <https://pennylane-pq.readthedocs.io/>`_ plugins.
-
-.. autosummary::
-    Device
-
-Device attributes and methods
------------------------------
-
-.. currentmodule:: pennylane._device.Device
-
-The following methods and attributes are accessible from the PennyLane
-user interface:
-
-.. autosummary::
-    short_name
-    capabilities
-    supports_operation
-    supports_observable
-    execute
-    reset
-
-Abstract methods and attributes
--------------------------------
-
-The following methods and attributes must be defined for all devices:
-
-.. autosummary::
-    name
-    short_name
-    pennylane_requires
-    version
-    author
-    operations
-    observables
-    apply
-    expval
-    var
-
-In addition, the following may also be optionally defined:
-
-.. autosummary::
-    pre_apply
-    post_apply
-    pre_measure
-    post_measure
-    execution_context
-
-
-Internal attributes and methods
--------------------------------
-
-The following methods and attributes are used internally by the :class:`Device` class,
-to ensure correct operation and internal consistency.
-
-.. autosummary::
-    check_validity
-
-.. currentmodule:: pennylane._device
-
-
-Code details
-~~~~~~~~~~~~
+This module contains the :class:`Device` abstract base class.
 """
 # pylint: disable=too-many-format-args
 import abc
 
-import autograd.numpy as np
-from pennylane.operation import Operation, Observable
+import numpy as np
+
+from collections import Iterable, OrderedDict
+from pennylane.operation import (
+    Operation,
+    Observable,
+    Sample,
+    State,
+    Variance,
+    Expectation,
+    Probability,
+    Tensor,
+)
+from pennylane.qnodes import QuantumFunctionError
+from pennylane.wires import Wires, WireError
 
 
 class DeviceError(Exception):
     """Exception raised by a :class:`~.pennylane._device.Device` when it encounters an illegal
     operation in the quantum circuit.
     """
-    pass
 
 
 class Device(abc.ABC):
     """Abstract base class for PennyLane devices.
 
     Args:
-        wires (int): number of subsystems in the quantum state represented by the device.
-            Default 1 if not specified.
-        shots (int): number of circuit evaluations/random samples used to estimate
-            expectation values of observables. For simulator devices, a value of 0 results
-            in the exact expectation value being returned. Defaults to 0 if not specified.
+        wires (int or Iterable[Number, str]]): Number of subsystems represented by the device,
+            or iterable that contains unique labels for the subsystems as numbers (i.e., ``[-1, 0, 2]``)
+            or strings (``['ancilla', 'q1', 'q2']``). Default 1 if not specified.
+        shots (int): Number of circuit evaluations/random samples used to estimate
+            expectation values of observables. Defaults to 1000 if not specified.
     """
-    #pylint: disable=too-many-public-methods
-    _capabilities = {} #: dict[str->*]: plugin capabilities
-    _circuits = {}     #: dict[str->Circuit]: circuit templates associated with this API class
 
-    def __init__(self, wires=1, shots=0):
-        self.num_wires = wires
+    # pylint: disable=too-many-public-methods
+    _capabilities = {
+        "model": None,
+    }
+    """The capabilities dictionary stores the properties of a device. Devices can add their
+    own custom properties and overwrite existing ones by overriding the ``capabilities()`` method."""
+
+    _circuits = {}  #: dict[str->Circuit]: circuit templates associated with this API class
+    _asarray = staticmethod(np.asarray)
+
+    def __init__(self, wires=1, shots=1000):
+
         self.shots = shots
 
+        if not isinstance(wires, Iterable):
+            # interpret wires as the number of consecutive wires
+            wires = range(wires)
+
+        self._wires = Wires(wires)
+        self.num_wires = len(self._wires)
+        self._wire_map = self.define_wire_map(self._wires)
+        self._num_executions = 0
         self._op_queue = None
         self._obs_queue = None
+        self._parameters = None
 
     def __repr__(self):
         """String representation."""
-        return "{}.\nInstance: ".format(self.__module__, self.__class__.__name__, self.name)
+        return "<{} device (wires={}, shots={}) at {}>".format(
+            self.__class__.__name__, self.num_wires, self.shots, hex(id(self))
+        )
 
     def __str__(self):
         """Verbose string representation."""
-        return "{}\nName: \nAPI version: \nPlugin version: \nAuthor: ".format(self.name, self.pennylane_requires, self.version, self.author)
+        return "{}\nShort name: {}\nPackage: {}\nPlugin version: {}\nAuthor: {}\nWires: {}\nShots: {}".format(
+            self.name,
+            self.short_name,
+            self.__module__.split(".")[0],
+            self.version,
+            self.author,
+            self.num_wires,
+            self.shots,
+        )
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def name(self):
         """The full name of the device."""
-        raise NotImplementedError
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def short_name(self):
         """Returns the string used to load the device."""
-        raise NotImplementedError
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def pennylane_requires(self):
         """The current API version that the device plugin was made for."""
-        raise NotImplementedError
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def version(self):
         """The current version of the plugin."""
-        raise NotImplementedError
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def author(self):
         """The author(s) of the plugin."""
-        raise NotImplementedError
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def operations(self):
         """Get the supported set of operations.
 
         Returns:
             set[str]: the set of PennyLane operation names the device supports
         """
-        raise NotImplementedError
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def observables(self):
         """Get the supported set of observables.
 
         Returns:
             set[str]: the set of PennyLane observable names the device supports
         """
-        raise NotImplementedError
+
+    @property
+    def shots(self):
+        """Number of circuit evaluations/random samples used to estimate
+        expectation values of observables"""
+        return self._shots
+
+    @property
+    def wires(self):
+        """All wires that can be addressed on this device"""
+        return self._wires
+
+    @property
+    def wire_map(self):
+        """Ordered dictionary that defines the map from user-provided wire labels to
+        the wire labels used on this device"""
+        return self._wire_map
+
+    @property
+    def num_executions(self):
+        """Number of times this device is executed by the evaluation of QNodes
+        running on this device
+
+        Returns:
+            int: number of executions
+        """
+        return self._num_executions
+
+    @shots.setter
+    def shots(self, shots):
+        """Changes the number of shots.
+
+        Args:
+            shots (int): number of circuit evaluations/random samples used to estimate
+                expectation values of observables
+
+        Raises:
+            DeviceError: if number of shots is less than 1
+        """
+        if shots < 1:
+            raise DeviceError(
+                "The specified number of shots needs to be at least 1. Got {}.".format(shots)
+            )
+
+        self._shots = int(shots)
+
+    def define_wire_map(self, wires):
+        """Create the map from user-provided wire labels to the wire labels used by the device.
+
+        The default wire map maps the user wire labels to wire labels that are consecutive integers.
+
+        However, by overwriting this function, devices can specify their preferred, non-consecutive and/or non-integer
+        wire labels.
+
+        Args:
+            wires (Wires): user-provided wires for this device
+
+        Returns:
+            OrderedDict: dictionary specifying the wire map
+
+        **Example**
+
+        >>> dev = device('my.device', wires=['b', 'a'])
+        >>> dev.wire_map()
+        OrderedDict( [(<Wires = ['a']>, <Wires = [0]>), (<Wires = ['b']>, <Wires = [1]>)])
+        """
+        consecutive_wires = Wires(range(self.num_wires))
+
+        wire_map = zip(wires, consecutive_wires)
+        return OrderedDict(wire_map)
+
+    def map_wires(self, wires):
+        """Map the wire labels of wires using this device's wire map.
+
+        Args:
+            wires (Wires): wires whose labels we want to map to the device's internal labelling scheme
+
+        Returns:
+            Wires: wires with new labels
+        """
+        try:
+            mapped_wires = wires.map(self.wire_map)
+        except WireError as e:
+            raise WireError(
+                "Did not find some of the wires {} on device with wires {}.".format(
+                    wires, self.wires
+                )
+            ) from e
+
+        return mapped_wires
 
     @classmethod
     def capabilities(cls):
-        """Get the other capabilities of the plugin.
+        """Get the capabilities of this device class.
 
-        Measurements, batching etc.
+        Inheriting classes that change or add capabilities must override this method, for example via
+
+        .. code-block:: python
+
+            @classmethod
+            def capabilities(cls):
+                capabilities = super().capabilities().copy()
+                capabilities.update(
+                    supports_inverse_operations=False,
+                    supports_a_new_capability=True,
+                )
+                return capabilities
 
         Returns:
             dict[str->*]: results
         """
         return cls._capabilities
 
-    def execute(self, queue, observables):
+    def execute(self, queue, observables, parameters={}, **kwargs):
         """Execute a queue of quantum operations on the device and then measure the given observables.
 
         For plugin developers: Instead of overwriting this, consider implementing a suitable subset of
@@ -193,6 +260,15 @@ class Device(abc.ABC):
         Args:
             queue (Iterable[~.operation.Operation]): operations to execute on the device
             observables (Iterable[~.operation.Observable]): observables to measure and return
+            parameters (dict[int, list[ParameterDependency]]): Mapping from free parameter index to the list of
+                :class:`Operations <pennylane.operation.Operation>` (in the queue) that depend on it.
+
+        Keyword Args:
+            return_native_type (bool): If True, return the result in whatever type the device uses
+                internally, otherwise convert it into array[float]. Default: False.
+
+        Raises:
+            QuantumFunctionError: if the value of :attr:`~.Observable.return_type` is not supported
 
         Returns:
             array[float]: measured value(s)
@@ -200,6 +276,8 @@ class Device(abc.ABC):
         self.check_validity(queue, observables)
         self._op_queue = queue
         self._obs_queue = observables
+        self._parameters = {}
+        self._parameters.update(parameters)
 
         results = []
 
@@ -214,29 +292,75 @@ class Device(abc.ABC):
             self.pre_measure()
 
             for obs in observables:
-                if obs.return_type == "expectation":
-                    results.append(self.expval(obs.name, obs.wires, obs.parameters))
-                elif obs.return_type == "variance":
-                    results.append(self.var(obs.name, obs.wires, obs.parameters))
-                elif obs.return_type == "sample":
-                    if not hasattr(obs, "num_samples"):
-                        raise DeviceError("Number of samples not specified for observable {}".format(obs.name))
 
-                    results.append(np.array(self.sample(obs.name, obs.wires, obs.parameters, obs.num_samples)))
+                if isinstance(obs, Tensor):
+                    wires = [ob.wires for ob in obs.obs]
+                else:
+                    wires = obs.wires
+
+                if obs.return_type is Expectation:
+                    results.append(self.expval(obs.name, wires, obs.parameters))
+
+                elif obs.return_type is Variance:
+                    results.append(self.var(obs.name, wires, obs.parameters))
+
+                elif obs.return_type is Sample:
+                    results.append(np.array(self.sample(obs.name, wires, obs.parameters)))
+
+                elif obs.return_type is Probability:
+                    results.append(list(self.probability(wires=wires).values()))
+
+                elif obs.return_type is State:
+                    raise QuantumFunctionError("Returning the state is not supported")
+
+                elif obs.return_type is not None:
+                    raise QuantumFunctionError(
+                        "Unsupported return type specified for observable {}".format(obs.name)
+                    )
 
             self.post_measure()
 
             self._op_queue = None
             self._obs_queue = None
+            self._parameters = None
+
+            # increment counter for number of executions of device
+            self._num_executions += 1
 
             # Ensures that a combination with sample does not put
             # expvals and vars in superfluous arrays
-            if all(obs.return_type == "sample" for obs in observables):
-                return np.asarray(results)
-            if any(obs.return_type == "sample" for obs in observables):
-                return np.asarray(results, dtype="object")
+            if all(obs.return_type is Sample for obs in observables):
+                return self._asarray(results)
+            if any(obs.return_type is Sample for obs in observables):
+                return self._asarray(results, dtype="object")
 
-            return np.asarray(results)
+            return self._asarray(results)
+
+    def batch_execute(self, circuits):
+        """Execute a batch of quantum circuits on the device.
+
+        The circuits are represented by tapes, and they are executed one-by-one using the
+        device's ``execute`` method. The results are collected in a list.
+
+        For plugin developers: This function should be overwritten if the device can efficiently run multiple
+        circuits on a backend, for example using parallel and/or asynchronous executions.
+
+        Args:
+            circuits (list[.tapes.QuantumTape]): circuits to execute on the device
+
+        Returns:
+            list[array[float]]: list of measured value(s)
+        """
+        results = []
+        for circuit in circuits:
+            # we need to reset the device here, else it will
+            # not start the next computation in the zero state
+            self.reset()
+
+            res = self.execute(circuit.operations, circuit.observables)
+            results.append(res)
+
+        return results
 
     @property
     def op_queue(self):
@@ -244,6 +368,9 @@ class Device(abc.ABC):
 
         Note that this property can only be accessed within the execution context
         of :meth:`~.execute`.
+
+        Raises:
+            ValueError: if outside of the execution context
 
         Returns:
             list[~.operation.Operation]
@@ -260,29 +387,51 @@ class Device(abc.ABC):
         Note that this property can only be accessed within the execution context
         of :meth:`~.execute`.
 
+        Raises:
+            ValueError: if outside of the execution context
+
         Returns:
             list[~.operation.Observable]
         """
         if self._obs_queue is None:
-            raise ValueError("Cannot access the observable value queue outside of the execution context!")
+            raise ValueError(
+                "Cannot access the observable value queue outside of the execution context!"
+            )
 
         return self._obs_queue
 
+    @property
+    def parameters(self):
+        """Mapping from free parameter index to the list of
+        :class:`Operations <~.Operation>` in the device queue that depend on it.
+
+        Note that this property can only be accessed within the execution context
+        of :meth:`~.execute`.
+
+        Raises:
+            ValueError: if outside of the execution context
+
+        Returns:
+            dict[int->list[ParameterDependency]]: the mapping
+        """
+        if self._parameters is None:
+            raise ValueError(
+                "Cannot access the free parameter mapping outside of the execution context!"
+            )
+
+        return self._parameters
+
     def pre_apply(self):
         """Called during :meth:`execute` before the individual operations are executed."""
-        pass
 
     def post_apply(self):
         """Called during :meth:`execute` after the individual operations have been executed."""
-        pass
 
     def pre_measure(self):
         """Called during :meth:`execute` before the individual observables are measured."""
-        pass
 
     def post_measure(self):
         """Called during :meth:`execute` after the individual observables have been measured."""
-        pass
 
     def execution_context(self):
         """The device execution context used during calls to :meth:`execute`.
@@ -294,10 +443,12 @@ class Device(abc.ABC):
         source of :meth:`.Device.execute` for more details).
         """
         # pylint: disable=no-self-use
-        class MockContext: # pylint: disable=too-few-public-methods
+        class MockContext:  # pylint: disable=too-few-public-methods
             """Mock class as a default for the with statement in execute()."""
+
             def __enter__(self):
                 pass
+
             def __exit__(self, type, value, traceback):
                 pass
 
@@ -307,7 +458,10 @@ class Device(abc.ABC):
         """Checks if an operation is supported by this device.
 
         Args:
-            operation (Operation,str): operation to be checked
+            operation (type or str): operation to be checked
+
+        Raises:
+            ValueError: if `operation` is not a :class:`~.Operation` class or string
 
         Returns:
             bool: ``True`` iff supplied operation is supported
@@ -315,15 +469,30 @@ class Device(abc.ABC):
         if isinstance(operation, type) and issubclass(operation, Operation):
             return operation.__name__ in self.operations
         if isinstance(operation, str):
+
+            if operation.endswith(Operation.string_for_inverse):
+                in_ops = operation[: -len(Operation.string_for_inverse)] in self.operations
+                # TODO: update when all capabilities keys changed to "supports_inverse_operations"
+                supports_inv = self.capabilities().get(
+                    "supports_inverse_operations", False
+                ) or self.capabilities().get("inverse_operations", False)
+                return in_ops and supports_inv
+
             return operation in self.operations
 
-        raise ValueError("The given operation must either be a pennylane.Operation class or a string.")
+        raise ValueError(
+            "The given operation must either be a pennylane.Operation class or a string."
+        )
 
     def supports_observable(self, observable):
-        """Checks if an observable is supported by this device.
+        """Checks if an observable is supported by this device. Raises a ValueError,
+         if not a subclass or string of an Observable was passed.
 
         Args:
-            operation (Observable,str): observable to be checked
+            observable (type or str): observable to be checked
+
+        Raises:
+            ValueError: if `observable` is not a :class:`~.Observable` class or string
 
         Returns:
             bool: ``True`` iff supplied observable is supported
@@ -331,27 +500,96 @@ class Device(abc.ABC):
         if isinstance(observable, type) and issubclass(observable, Observable):
             return observable.__name__ in self.observables
         if isinstance(observable, str):
+
+            # This check regards observables that are also operations
+            if observable.endswith(Operation.string_for_inverse):
+                return self.supports_operation(observable[: -len(Operation.string_for_inverse)])
+
             return observable in self.observables
 
-        raise ValueError("The given operation must either be a pennylane.Observable class or a string.")
-
+        raise ValueError(
+            "The given observable must either be a pennylane.Observable class or a string."
+        )
 
     def check_validity(self, queue, observables):
         """Checks whether the operations and observables in queue are all supported by the device.
+        Includes checks for inverse operations.
 
         Args:
             queue (Iterable[~.operation.Operation]): quantum operation objects which are intended
                 to be applied on the device
-            expectations (Iterable[~.operation.Observable]): observables which are intended
+            observables (Iterable[~.operation.Observable]): observables which are intended
                 to be evaluated on the device
+
+        Raises:
+            DeviceError: if there are operations in the queue or observables that the device does
+                not support
         """
+
         for o in queue:
-            if o.name not in self.operations:
-                raise DeviceError("Gate {} not supported on device {}".format(o.name, self.short_name))
+
+            operation_name = o.name
+
+            if o.inverse:
+                # TODO: update when all capabilities keys changed to "supports_inverse_operations"
+                supports_inv = self.capabilities().get(
+                    "supports_inverse_operations", False
+                ) or self.capabilities().get("inverse_operations", False)
+                if not supports_inv:
+                    raise DeviceError(
+                        "The inverse of gates are not supported on device {}".format(
+                            self.short_name
+                        )
+                    )
+                operation_name = o.base_name
+
+            if not self.supports_operation(operation_name):
+                raise DeviceError(
+                    "Gate {} not supported on device {}".format(operation_name, self.short_name)
+                )
 
         for o in observables:
-            if o.name not in self.observables:
-                raise DeviceError("Observable {} not supported on device {}".format(o.name, self.short_name))
+
+            if isinstance(o, Tensor):
+                # TODO: update when all capabilities keys changed to "supports_tensor_observables"
+                supports_tensor = self.capabilities().get(
+                    "supports_tensor_observables", False
+                ) or self.capabilities().get("tensor_observables", False)
+                if not supports_tensor:
+                    raise DeviceError(
+                        "Tensor observables not supported on device {}".format(self.short_name)
+                    )
+
+                for i in o.obs:
+                    if not self.supports_observable(i.name):
+                        raise DeviceError(
+                            "Observable {} not supported on device {}".format(
+                                i.name, self.short_name
+                            )
+                        )
+            else:
+
+                observable_name = o.name
+
+                if issubclass(o.__class__, Operation) and o.inverse:
+                    # TODO: update when all capabilities keys changed to "supports_inverse_operations"
+                    supports_inv = self.capabilities().get(
+                        "supports_inverse_operations", False
+                    ) or self.capabilities().get("inverse_operations", False)
+                    if not supports_inv:
+                        raise DeviceError(
+                            "The inverse of gates are not supported on device {}".format(
+                                self.short_name
+                            )
+                        )
+                    observable_name = o.base_name
+
+                if not self.supports_observable(observable_name):
+                    raise DeviceError(
+                        "Observable {} not supported on device {}".format(
+                            observable_name, self.short_name
+                        )
+                    )
 
     @abc.abstractmethod
     def apply(self, operation, wires, par):
@@ -361,61 +599,93 @@ class Device(abc.ABC):
 
         Args:
             operation (str): name of the operation
-            wires (Sequence[int]): subsystems the operation is applied on
+            wires (Wires): wires that the operation is applied to
             par (tuple): parameters for the operation
         """
-        raise NotImplementedError
 
     @abc.abstractmethod
     def expval(self, observable, wires, par):
         r"""Returns the expectation value of observable on specified wires.
 
+        Note: all arguments accept _lists_, which indicate a tensor
+        product of observables.
+
         Args:
-          observable (str): name of the observable
-          wires (Sequence[int]): target subsystems
-          par (tuple[float]): parameter values
+            observable (str or list[str]): name of the observable(s)
+            wires (Wires): wires the observable(s) are to be measured on
+            par (tuple or list[tuple]]): parameters for the observable(s)
 
         Returns:
-          float: expectation value :math:`\expect{A} = \bra{\psi}A\ket{\psi}`
-            """
-        raise NotImplementedError
+            float: expectation value :math:`\expect{A} = \bra{\psi}A\ket{\psi}`
+        """
 
     def var(self, observable, wires, par):
         r"""Returns the variance of observable on specified wires.
 
+        Note: all arguments support _lists_, which indicate a tensor
+        product of observables.
+
         Args:
-          observable (str): name of the observable
-          wires (Sequence[int]): target subsystems
-          par (tuple[float]): parameter values
+            observable (str or list[str]): name of the observable(s)
+            wires (Wires): wires the observable(s) is to be measured on
+            par (tuple or list[tuple]]): parameters for the observable(s)
+
+        Raises:
+            NotImplementedError: if the device does not support variance computation
 
         Returns:
             float: variance :math:`\mathrm{var}(A) = \bra{\psi}A^2\ket{\psi} - \bra{\psi}A\ket{\psi}^2`
         """
-        raise NotImplementedError("Returning variances from QNodes not currently supported by {}".format(self.short_name))
+        raise NotImplementedError(
+            "Returning variances from QNodes not currently supported by {}".format(self.short_name)
+        )
 
-    def sample(self, observable, wires, par, n=None):
+    def sample(self, observable, wires, par):
         """Return a sample of an observable.
 
-        For plugin developers: this function should return the result of an evaluation
-        of the given observable on the device.
+        The number of samples is determined by the value of ``Device.shots``,
+        which can be directly modified.
+
+        Note: all arguments support _lists_, which indicate a tensor
+        product of observables.
 
         Args:
-            observable (str): name of the observable
-            wires (Sequence[int]): subsystems the observable is to be measured on
-            par (tuple): parameters for the observable
-            n (int): Number of samples that should be obtained. Defaults to the
-                number of shots given as a parameter to the corresponding Device.
+            observable (str or list[str]): name of the observable(s)
+            wires (Wires): wires the observable(s) is to be measured on
+            par (tuple or list[tuple]]): parameters for the observable(s)
+
+        Raises:
+            NotImplementedError: if the device does not support sampling
 
         Returns:
-            array[float]: samples in an array of dimension ``(n, num_wires)``
+            array[float]: samples in an array of dimension ``(shots,)``
         """
-        raise NotImplementedError("Returning samples from QNodes not currently supported by {}".format(self.short_name))
+        raise NotImplementedError(
+            "Returning samples from QNodes not currently supported by {}".format(self.short_name)
+        )
+
+    def probability(self, wires=None):
+        """Return the (marginal) probability of each computational basis
+        state from the last run of the device.
+
+        Args:
+            wires (Sequence[int]): Sequence of wires to return
+                marginal probabilities for. Wires not provided
+                are traced out of the system.
+
+        Returns:
+            OrderedDict[tuple, float]: Dictionary mapping a tuple representing the state
+            to the resulting probability. The dictionary should be sorted such that the
+            state tuples are in lexicographical order.
+        """
+        raise NotImplementedError(
+            "Returning probability not currently supported by {}".format(self.short_name)
+        )
 
     @abc.abstractmethod
     def reset(self):
         """Reset the backend state.
 
-        After the reset the backend should be as if it was just constructed.
+        After the reset, the backend should be as if it was just constructed.
         Most importantly the quantum state is reset to its initial value.
         """
-        raise NotImplementedError

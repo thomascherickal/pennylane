@@ -1,4 +1,4 @@
-# Copyright 2019 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,177 +12,197 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # pylint: disable=protected-access
-r"""
-Measurements
-============
-
-**Module name:** :mod:`pennylane.measure`
-
-.. currentmodule:: pennylane.measure
-
-This module contains the functions for computing expectation values,
-variances, and measurement samples of quantum observables.
-
-These are used to indicate to the quantum device how to measure
-and return the requested observables. For example, the following
-QNode returns the expectation value of observable :class:`~.PauliZ`
-on wire 1, and the variance of observable :class:`~.PauliX` on
-wire 2.
-
-.. code-block:: python
-
-    import pennylane as qml
-    from pennylane import expval, var
-
-    dev = qml.device('default.qubit', wires=2)
-
-    @qml.qnode(dev)
-    def circuit(x, y):
-        qml.RX(x, wires=0)
-        qml.CNOT(wires=[0,1])
-        qml.RY(y, wires=1)
-        return expval(qml.PauliZ(0)), var(qml.PauliX(1))
-
-Note that *all* returned observables must be within
-a measurement function; they cannot be 'bare'.
-
-Summary
-^^^^^^^
-
-.. autosummary::
-   expval
-   var
-
-Code details
-^^^^^^^^^^^^
 """
-import warnings
-
+This module contains the functions for computing different types of measurement
+outcomes from quantum observables - expectation values, variances of expectations,
+and measurement samples.
+"""
 import pennylane as qml
+from pennylane.operation import Observable, Sample, Variance, Expectation, Probability, Tensor
+from pennylane.qnodes import QuantumFunctionError
 
-from .qnode import QNode, QuantumFunctionError
-from .operation import Observable
 
-
-class ExpvalFactory:
+def expval(op):
     r"""Expectation value of the supplied observable.
+
+    **Example:**
+
+    .. code-block:: python3
+
+        dev = qml.device("default.qubit", wires=2)
+
+        @qml.qnode(dev)
+        def circuit(x):
+            qml.RX(x, wires=0)
+            qml.Hadamard(wires=1)
+            qml.CNOT(wires=[0, 1])
+            return qml.expval(qml.PauliY(0))
+
+    Executing this QNode:
+
+    >>> circuit(0.5)
+    -0.4794255386042029
 
     Args:
         op (Observable): a quantum observable object
+
+    Raises:
+        QuantumFunctionError: `op` is not an instance of :class:`~.Observable`
     """
-
-    def __call__(self, op):
-        if not isinstance(op, Observable):
-            raise QuantumFunctionError(
-                "{} is not an observable: cannot be used with expval".format(op.name)
-            )
-
-        if QNode._current_context is not None:
-            # delete operations from QNode queue
-            QNode._current_context.queue.remove(op)
-
-        # set return type to be an expectation value
-        op.return_type = "expectation"
-
-        if QNode._current_context is not None:
-            # add observable to QNode observable queue
-            QNode._current_context._append_op(op)
-
-        return op
-
-    def __getattr__(self, name):
-        # This to allow backwards compatibility with the previous
-        # module/attribute UI for requesting expectation values. Note that a deprecation
-        # warning will be raised if this UI is used.
-        #
-        # Once fully deprecated, this method can be removed,
-        # and the ExpvalFactory function can be converted into a
-        # simple expval() function using the code within __call__.
-        warnings.warn(
-            "Calling qml.expval.Observable() is deprecated. "
-            "Please use the new qml.expval(qml.Observable()) form.",
-            DeprecationWarning,
+    if not isinstance(op, Observable):
+        raise QuantumFunctionError(
+            "{} is not an observable: cannot be used with expval".format(op.name)
         )
 
-        if name in qml.ops.__all_obs__:  # pylint: disable=no-member
-            obs_class = getattr(qml.ops, name)
-            return type(name, (obs_class,), {"return_type": "expectation"})
+    if isinstance(op, Tensor):
+        for o in op.obs:
+            qml.QueuingContext.remove(o)
+    else:
+        qml.QueuingContext.remove(op)
 
-        if name in qml.ops.__all_ops__:  # pylint: disable=no-member
-            raise AttributeError("{} is not an observable: cannot be used with expval".format(name))
+    op.return_type = Expectation
 
-        raise AttributeError("module 'pennylane' has no observable '{}'".format(name))
+    qml.QueuingContext.append(op)
 
-
-expval = ExpvalFactory()
-r"""Expectation value of the supplied observable.
-
-Args:
-    op (Observable): a quantum observable object
-"""
+    return op
 
 
 def var(op):
     r"""Variance of the supplied observable.
 
+    **Example:**
+
+    .. code-block:: python3
+
+        dev = qml.device("default.qubit", wires=2)
+
+        @qml.qnode(dev)
+        def circuit(x):
+            qml.RX(x, wires=0)
+            qml.Hadamard(wires=1)
+            qml.CNOT(wires=[0, 1])
+            return qml.var(qml.PauliY(0))
+
+    Executing this QNode:
+
+    >>> circuit(0.5)
+    0.7701511529340698
+
     Args:
         op (Observable): a quantum observable object
+
+    Raises:
+        QuantumFunctionError: `op` is not an instance of :class:`~.Observable`
     """
     if not isinstance(op, Observable):
         raise QuantumFunctionError(
             "{} is not an observable: cannot be used with var".format(op.name)
         )
 
-    if QNode._current_context is not None:
-        # delete operations from QNode queue
-        QNode._current_context.queue.remove(op)
+    if isinstance(op, Tensor):
+        for o in op.obs:
+            qml.QueuingContext.remove(o)
+    else:
+        qml.QueuingContext.remove(op)
 
-    # set return type to be a variance
-    op.return_type = "variance"
+    op.return_type = Variance
 
-    if QNode._current_context is not None:
-        # add observable to QNode observable queue
-        QNode._current_context._append_op(op)
+    qml.QueuingContext.append(op)
 
     return op
 
 
-def sample(op, n=None):
-    r"""Returns a sample of the supplied observable.
+def sample(op):
+    r"""Sample from the supplied observable, with the number of shots
+    determined from the ``dev.shots`` attribute of the corresponding device.
+
+    The samples are drawn from the eigenvalues :math:`\{\lambda_i\}` of the observable.
+    The probability of drawing eigenvalue :math:`\lambda_i` is given by
+    :math:`p(\lambda_i) = |\langle \xi_i | \psi \rangle|^2`, where :math:`| \xi_i \rangle`
+    is the corresponding basis state from the observable's eigenbasis.
+
+    **Example:**
+
+    .. code-block:: python3
+
+        dev = qml.device("default.qubit", wires=2, shots=4)
+
+        @qml.qnode(dev)
+        def circuit(x):
+            qml.RX(x, wires=0)
+            qml.Hadamard(wires=1)
+            qml.CNOT(wires=[0, 1])
+            return qml.sample(qml.PauliY(0))
+
+    Executing this QNode:
+
+    >>> circuit(0.5)
+    array([ 1.,  1.,  1., -1.])
 
     Args:
         op (Observable): a quantum observable object
-        n (int): Number of samples that should be obtained. Defaults to the
-            number of shots given as a parameter to the corresponding Device.
+
+    Raises:
+        QuantumFunctionError: `op` is not an instance of :class:`~.Observable`
     """
     if not isinstance(op, Observable):
         raise QuantumFunctionError(
             "{} is not an observable: cannot be used with sample".format(op.name)
         )
 
-    if n is None:
-        if QNode._current_context is not None:
-            n = QNode._current_context.device.shots
-        else:
-            raise QuantumFunctionError("Could not find a bound device to determine the default number of samples.")
+    if isinstance(op, Tensor):
+        for o in op.obs:
+            qml.QueuingContext.remove(o)
+    else:
+        qml.QueuingContext.remove(op)
 
-    if n == 0:
-        raise ValueError("Calling sample with n = 0 is not possible.")
-    if n < 0 or not isinstance(n, int):
-        raise ValueError("The number of samples must be a positive integer.")
+    op.return_type = Sample
 
-    if QNode._current_context is not None:
-        # delete operation from QNode queue
-        QNode._current_context.queue.remove(op)
+    qml.QueuingContext.append(op)
 
-    # set return type to be a sample
-    op.return_type = "sample"
+    return op
 
-    # attach the number of samples to the operation object
-    op.num_samples = n
 
-    if QNode._current_context is not None:
-        # add observable back to QNode observable queue
-        QNode._current_context._append_op(op)
+def probs(wires):
+    r"""Probability of each computational basis state.
+
+    This measurement function accepts no observables, and instead
+    instructs the QNode to return a flat array containing the
+    probabilities :math:`|\langle i | \psi \rangle |^2` of measuring
+    the computational basis state :math:`| i \rangle` given the current
+    state :math:`| \psi \rangle`.
+
+    Marginal probabilities may also be requested by restricting
+    the wires to a subset of the full system; the size of the
+    returned array will be ``[2**len(wires)]``.
+
+    **Example:**
+
+    .. code-block:: python3
+
+        dev = qml.device("default.qubit", wires=2)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.Hadamard(wires=1)
+            return qml.probs(wires=[0, 1])
+
+    Executing this QNode:
+
+    >>> circuit()
+    array([0.5, 0.5, 0. , 0. ])
+
+    The returned array is in lexicographic order, so corresponds
+    to a :math:`50\%` chance of measuring either :math:`|00\rangle`
+    or :math:`|01\rangle`.
+
+    Args:
+        wires (Sequence[int] or int): the wire the operation acts on
+    """
+    # pylint: disable=protected-access
+    op = qml.Identity(wires=wires, do_queue=False)
+    op.return_type = Probability
+
+    qml.QueuingContext.append(op)
 
     return op

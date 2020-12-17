@@ -2,7 +2,8 @@ PYTHON3 := $(shell which python3 2>/dev/null)
 
 PYTHON := python3
 COVERAGE := --cov=pennylane --cov-report term-missing --cov-report=html:coverage_html_report
-TESTRUNNER := -m pytest tests --tb=native
+TESTRUNNER := -m pytest tests --tb=native --no-flaky-report
+PLUGIN_TESTRUNNER := -m pytest pennylane/devices/tests --tb=native --no-flaky-report
 
 .PHONY: help
 help:
@@ -36,23 +37,29 @@ clean:
 	rm -rf pennylane/optimize/__pycache__
 	rm -rf pennylane/expectation/__pycache__
 	rm -rf pennylane/ops/__pycache__
-	rm -rf pennylane/plugins/__pycache__
+	rm -rf pennylane/devices/__pycache__
 	rm -rf tests/__pycache__
+	rm -rf tests/new_qnode/__pycache__
 	rm -rf dist
 	rm -rf build
 	rm -rf .coverage coverage_html_report/
+	rm -rf tmp
+	rm -rf *.dat
+	make -C qchem clean
 
 docs:
 	make -C doc html
 
 .PHONY : clean-docs
 clean-docs:
+	rm -rf doc/code/api
 	make -C doc clean
-
 
 test:
 	$(PYTHON) $(TESTRUNNER)
+	$(PYTHON) $(PLUGIN_TESTRUNNER) --device=default.qubit.autograd
 
 coverage:
 	@echo "Generating coverage report..."
 	$(PYTHON) $(TESTRUNNER) $(COVERAGE)
+	$(PYTHON) $(PLUGIN_TESTRUNNER) --device=default.qubit.autograd $(COVERAGE) --cov-append

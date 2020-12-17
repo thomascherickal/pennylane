@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,3 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""
+This module contains templates, which are pre-coded routines that can be used in a quantum node.
+"""
+
+from .broadcast import *
+from .decorator import *
+from .layer import *
+from .layers import *
+from .embeddings import *
+from .subroutines import *
+from .state_preparations import *

@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Root mean square propagation optimizer"""
+import math
 
-import autograd.numpy as np
 from pennylane.utils import _flatten, unflatten
 from .adagrad import AdagradOptimizer
 
@@ -42,6 +42,7 @@ class RMSPropOptimizer(AdagradOptimizer):
         eps (float): offset :math:`\epsilon` added for numerical stability (see :class:`Adagrad <pennylane.optmimize.AdagradOptimizer>`)
 
     """
+
     def __init__(self, stepsize=0.01, decay=0.9, eps=1e-8):
         super().__init__(stepsize)
         self.decay = decay
@@ -64,10 +65,16 @@ class RMSPropOptimizer(AdagradOptimizer):
         x_flat = _flatten(x)
 
         if self.accumulation is None:
-            self.accumulation = [(1 - self.decay) * g*g for g in grad_flat]
+            self.accumulation = [(1 - self.decay) * g * g for g in grad_flat]
         else:
-            self.accumulation = [self.decay*a + (1-self.decay)*g*g for a, g in zip(self.accumulation, grad_flat)]
+            self.accumulation = [
+                self.decay * a + (1 - self.decay) * g * g
+                for a, g in zip(self.accumulation, grad_flat)
+            ]
 
-        x_new_flat = [e - (self._stepsize / np.sqrt(a + self.eps)) * g for a, g, e in zip(self.accumulation, grad_flat, x_flat)]
+        x_new_flat = [
+            e - (self._stepsize / math.sqrt(a + self.eps)) * g
+            for a, g, e in zip(self.accumulation, grad_flat, x_flat)
+        ]
 
         return unflatten(x_new_flat, x)

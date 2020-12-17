@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Adagrad optimizer"""
+import math
 
-import autograd.numpy as np
 from pennylane.utils import _flatten, unflatten
 from .gradient_descent import GradientDescentOptimizer
 
@@ -45,6 +45,7 @@ class AdagradOptimizer(GradientDescentOptimizer):
         stepsize (float): the user-defined hyperparameter :math:`\eta`
         eps (float): offset :math:`\epsilon` added for numerical stability
     """
+
     def __init__(self, stepsize=0.01, eps=1e-8):
         super().__init__(stepsize)
         self.eps = eps
@@ -67,11 +68,14 @@ class AdagradOptimizer(GradientDescentOptimizer):
         grad_flat = list(_flatten(grad))
 
         if self.accumulation is None:
-            self.accumulation = [g*g for g in grad_flat]
+            self.accumulation = [g * g for g in grad_flat]
         else:
-            self.accumulation = [a + g*g for a, g in zip(self.accumulation, grad_flat)]
+            self.accumulation = [a + g * g for a, g in zip(self.accumulation, grad_flat)]
 
-        x_new_flat = [e - (self._stepsize / np.sqrt(a + self.eps)) * g for a, g, e in zip(self.accumulation, grad_flat, x_flat)]
+        x_new_flat = [
+            e - (self._stepsize / math.sqrt(a + self.eps)) * g
+            for a, g, e in zip(self.accumulation, grad_flat, x_flat)
+        ]
 
         return unflatten(x_new_flat, x)
 

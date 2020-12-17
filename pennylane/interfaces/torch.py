@@ -1,4 +1,4 @@
-# Copyright 2018 Xanadu Quantum Technologies Inc.
+# Copyright 2018-2020 Xanadu Quantum Technologies Inc.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,205 +12,54 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-.. _torch_qnode:
-
-PyTorch interface
-*****************
-
-**Module name:** :mod:`pennylane.interfaces.torch`
-
-.. currentmodule:: pennylane.interfaces.torch
-
-.. warning::
-
-    This interface is **experimental**. If you find any bugs, please report them
-    on our GitHub issues page: https://github.com/XanaduAI/pennylane
-
-
-Using the PyTorch interface
----------------------------
-
-.. note::
-
-    To use the PyTorch interface in PennyLane, you must first
-    `install PyTorch <https://pytorch.org/get-started/locally/#start-locally>`_.
-
-Using the PyTorch interface is easy in PennyLane --- let's consider a few ways
-it can be done.
-
-Via the QNode decorator
-^^^^^^^^^^^^^^^^^^^^^^^
-
-The :ref:`QNode decorator <qnode_decorator>` is the recommended way for creating QNodes
-in PennyLane. The only change required to construct a PyTorch-capable QNode is to
-specify the ``interface='torch'`` keyword argument:
-
-.. code-block:: python
-
-    dev = qml.device('default.qubit', wires=2)
-
-    @qml.qnode(dev, interface='torch')
-    def circuit(phi, theta):
-        qml.RX(phi[0], wires=0)
-        qml.RY(phi[1], wires=1)
-        qml.CNOT(wires=[0, 1])
-        qml.PhaseShift(theta, wires=0)
-        return qml.expval(qml.PauliZ(0)), qml.expval(qml.Hadamard(1))
-
-The QNode ``circuit()`` is now a PyTorch-capable QNode, accepting ``torch.tensor`` objects
-as input, and returning ``torch.tensor`` objects. Subclassing from ``torch.autograd.Function``,
-it can now be used like any other PyTorch function:
-
->>> phi = torch.tensor([0.5, 0.1])
->>> theta = torch.tensor(0.2)
->>> circuit(phi, theta)
-tensor([0.8776, 0.6880], dtype=torch.float64)
-
-Via the QNode class
-^^^^^^^^^^^^^^^^^^^
-
-Sometimes, it is more convenient to instantiate a :class:`~.QNode` object directly, for example,
-if you would like to reuse the same quantum function across multiple devices, or even
-using different classical interfaces:
-
-.. code-block:: python
-
-    dev1 = qml.device('default.qubit', wires=2)
-    dev2 = qml.device('forest.wavefunction', wires=2)
-
-    def circuit(phi, theta):
-        qml.RX(phi[0], wires=0)
-        qml.RY(phi[1], wires=1)
-        qml.CNOT(wires=[0, 1])
-        qml.PhaseShift(theta, wires=0)
-        return qml.expval(qml.PauliZ(0)), qml.expval(qml.Hadamard(1))
-
-    qnode1 = qml.QNode(circuit, dev1)
-    qnode2 = qml.QNode(circuit, dev2)
-
-We can convert the default NumPy-interfacing QNode to a PyTorch-interfacing QNode by
-using the :meth:`~.QNode.to_torch` method:
-
->>> qnode1_torch = qnode1.to_torch()
->>> qnode1_torch
-<QNode: device='default.qubit', func=circuit, wires=2, interface=PyTorch>
-
-Internally, the :meth:`~.QNode.to_torch` method uses the :func:`~.TorchQNode` function
-to do the conversion.
-
-
-Quantum gradients using PyTorch
--------------------------------
-
-Since a PyTorch-interfacing QNode acts like any other ``torch.autograd.Function``,
-the standard method used to calculate gradients with PyTorch can be used.
-
-For example:
-
-.. code-block:: python
-
-    import pennylane as qml
-    import torch
-    from torch.autograd import Variable
-
-    dev = qml.device('default.qubit', wires=2)
-
-    @qml.qnode(dev, interface='torch')
-    def circuit(phi, theta):
-        qml.RX(phi[0], wires=0)
-        qml.RY(phi[1], wires=1)
-        qml.CNOT(wires=[0, 1])
-        qml.PhaseShift(theta, wires=0)
-        return qml.expval(qml.PauliZ(0))
-
-    phi = Variable(torch.tensor([0.5, 0.1]), requires_grad=True)
-    theta = Variable(torch.tensor(0.2), requires_grad=True)
-    result = circuit(phi, theta)
-
-Now, performing the backpropagation and accumulating the gradients:
-
->>> result.backward()
->>> phi.grad
-tensor([-0.4794,  0.0000])
->>> theta.grad
-tensor(-5.5511e-17)
-
-.. _pytorch_optimize:
-
-Optimization using PyTorch
---------------------------
-
-To optimize your hybrid classical-quantum model using the Torch interface,
-you **must** make use of the `PyTorch provided optimizers <https://pytorch.org/docs/stable/optim.html>`_,
-or your own custom PyTorch optimizer. **The** :ref:`PennyLane optimizers <optimization_methods>`
-**cannot be used with the Torch interface, only the** :ref:`numpy_qnode`.
-
-For example, to optimize a Torch-interfacing QNode (below) such that the weights ``x``
-result in an expectation value of 0.5, with the classical nodes processed on a GPU,
-we can do the following:
-
-.. code-block:: python
-
-    import torch
-    from torch.autograd import Variable
-    import pennylane as qml
-
-    dev = qml.device('default.qubit', wires=2)
-
-    @qml.qnode(dev, interface='torch')
-    def circuit(phi, theta):
-        qml.RX(phi[0], wires=0)
-        qml.RZ(phi[1], wires=1)
-        qml.CNOT(wires=[0, 1])
-        qml.RX(theta, wires=0)
-        return qml.expval(qml.PauliZ(0))
-
-    def cost(phi, theta):
-        return torch.abs(circuit(phi, theta) - 0.5)**2
-
-    phi = Variable(torch.tensor([0.011, 0.012], device='cuda'), requires_grad=True)
-    theta = Variable(torch.tensor(0.05, device='cuda'), requires_grad=True)
-
-    opt = torch.optim.Adam([phi, theta], lr = 0.1)
-
-    steps = 200
-
-    def closure():
-        opt.zero_grad()
-        loss = cost(phi, theta)
-        loss.backward()
-        return loss
-
-    for i in range(steps):
-        opt.step(closure)
-
-The final weights and circuit value are:
-
->>> phi_final, theta_final = opt.param_groups[0]['params']
->>> phi_final, theta_final
-(tensor([0.7345, 0.0120], device='cuda:0', requires_grad=True), tensor(0.8316, device='cuda:0', requires_grad=True))
->>> circuit(phi_final, theta_final)
-tensor(0.5000, device='cuda:0', dtype=torch.float64, grad_fn=<_TorchQNodeBackward>)
-
-.. note::
-
-    For more advanced PyTorch models, Torch-interfacing QNodes can be used to construct
-    layers in custom PyTorch modules (``torch.nn.Module``).
-
-    See https://pytorch.org/docs/stable/notes/extending.html#adding-a-module for more details.
-
-
-Code details
-^^^^^^^^^^^^
+This module contains the :func:`to_torch` function to convert Numpy-interfacing quantum nodes to PyTorch
+compatible quantum nodes.
 """
 # pylint: disable=redefined-outer-name,arguments-differ
+from collections import Iterable
 import inspect
 from functools import partial
+import numbers
 
 import numpy as np
 import torch
+from torch.autograd.function import once_differentiable
 
-from pennylane.utils import unflatten
+
+def unflatten_torch(flat, model):
+    """Restores an arbitrary nested structure to a flattened Torch tensor.
+
+    Args:
+        flat (torch.Tensor): 1D tensor of items
+        model (array, Iterable, Number): model nested structure
+
+    Returns:
+        Tuple[list[torch.Tensor], torch.Tensor]: tuple containing elements of ``flat`` arranged
+        into the nested structure of model, as well as the unused elements of ``flat``.
+
+    Raises:
+        TypeError: if ``model`` contains an object of unsupported type
+    """
+    if isinstance(model, (numbers.Number, str)):
+        return flat[0], flat[1:]
+
+    if isinstance(model, (torch.Tensor, np.ndarray)):
+        try:
+            idx = model.numel()
+        except AttributeError:
+            idx = model.size
+
+        res = flat[:idx].reshape(model.shape)
+        return res, flat[idx:]
+
+    if isinstance(model, Iterable):
+        res = []
+        for x in model:
+            val, flat = unflatten_torch(flat, x)
+            res.append(val)
+        return res, flat
+
+    raise TypeError("Unsupported type in the model: {}".format(type(model)))
 
 
 def _get_default_args(func):
@@ -244,7 +93,7 @@ def args_to_numpy(args):
 
     for i in args:
         if isinstance(i, torch.Tensor):
-            if i.is_cuda: # pragma: no cover
+            if i.is_cuda:  # pragma: no cover
                 res.append(i.cpu().detach().numpy())
             else:
                 res.append(i.detach().numpy())
@@ -270,7 +119,7 @@ def kwargs_to_numpy(kwargs):
 
     for key, val in kwargs.items():
         if isinstance(val, torch.Tensor):
-            if val.is_cuda: # pragma: no cover
+            if val.is_cuda:  # pragma: no cover
                 res[key] = val.cpu().detach().numpy()
             else:
                 res[key] = val.detach().numpy()
@@ -278,12 +127,14 @@ def kwargs_to_numpy(kwargs):
             res[key] = val
 
     # if NumPy array is scalar, convert to a Python float
-    res = {k:v.tolist() if (isinstance(v, np.ndarray) and not v.shape) else v for k, v in res.items()}
+    res = {
+        k: v.tolist() if (isinstance(v, np.ndarray) and not v.shape) else v for k, v in res.items()
+    }
 
     return res
 
 
-def TorchQNode(qnode):
+def to_torch(qnode):
     """Function that accepts a :class:`~.QNode`, and returns a PyTorch-compatible QNode.
 
     Args:
@@ -292,8 +143,34 @@ def TorchQNode(qnode):
     Returns:
         torch.autograd.Function: the QNode as a PyTorch autograd function
     """
+    qnode_interface = getattr(qnode, "interface", None)
+
+    if qnode_interface == "torch":
+        return qnode
+
+    if qnode_interface is not None:
+        qnode = qnode._qnode  # pylint: disable=protected-access
+
     class _TorchQNode(torch.autograd.Function):
         """The TorchQNode"""
+
+        @staticmethod
+        def set_trainable(args):
+            """Given input arguments to the TorchQNode, determine which arguments
+            are trainable and which aren't.
+
+            Currently, all arguments are assumed to be nondifferentiable by default,
+            unless the ``torch.tensor`` attribute ``requires_grad`` is set to True.
+
+            This method calls the underlying :meth:`set_trainable_args` method of the QNode.
+            """
+            trainable_args = set()
+
+            for idx, arg in enumerate(args):
+                if getattr(arg, "requires_grad", False):
+                    trainable_args.add(idx)
+
+            qnode.set_trainable_args(trainable_args)
 
         @staticmethod
         def forward(ctx, input_kwargs, *input_):
@@ -302,6 +179,11 @@ def TorchQNode(qnode):
             ctx.args = args_to_numpy(input_)
             ctx.kwargs = kwargs_to_numpy(input_kwargs)
             ctx.save_for_backward(*input_)
+
+            # Determine which QNode input tensors require gradients,
+            # and thus communicate to the QNode which ones must
+            # be wrapped as PennyLane variables.
+            _TorchQNode.set_trainable(input_)
 
             # evaluate the QNode
             res = qnode(*ctx.args, **ctx.kwargs)
@@ -313,14 +195,15 @@ def TorchQNode(qnode):
             # if any input tensor uses the GPU, the output should as well
             for i in input_:
                 if isinstance(i, torch.Tensor):
-                    if i.is_cuda: # pragma: no cover
+                    if i.is_cuda:  # pragma: no cover
                         cuda_device = i.get_device()
                         return torch.as_tensor(torch.from_numpy(res), device=cuda_device)
 
             return torch.from_numpy(res)
 
         @staticmethod
-        def backward(ctx, grad_output): #pragma: no cover
+        @once_differentiable
+        def backward(ctx, grad_output):  # pragma: no cover
             """Implements the backwards pass QNode vector-Jacobian product"""
             # NOTE: This method is definitely tested by the `test_torch.py` test suite,
             # however does not show up in the coverage. This is likely due to
@@ -328,48 +211,72 @@ def TorchQNode(qnode):
             # the way in which the backward class is created on the fly
 
             # evaluate the Jacobian matrix of the QNode
-            jacobian = qnode.jacobian(ctx.args, **ctx.kwargs)
+            jacobian = qnode.jacobian(ctx.args, ctx.kwargs)
+            jacobian = torch.as_tensor(jacobian, dtype=grad_output.dtype).to(grad_output)
 
-            if grad_output.is_cuda: # pragma: no cover
-                grad_output_np = grad_output.cpu().detach().numpy()
-            else:
-                grad_output_np = grad_output.detach().numpy()
-
-            # perform the vector-Jacobian product
-            if not grad_output_np.shape:
-                temp = grad_output_np * jacobian
-            else:
-                temp = grad_output_np.T @ jacobian
+            vjp = torch.transpose(grad_output.view(-1, 1), 0, 1) @ jacobian
+            vjp = vjp.flatten()
 
             # restore the nested structure of the input args
-            temp = [np.array(i) if not isinstance(i, np.ndarray) else i for i in unflatten(temp.flat, ctx.args)]
-
-            # convert the result to torch tensors, matching
-            # the type of the input tensors
+            grad_input_list = unflatten_torch(vjp, ctx.saved_tensors)[0]
             grad_input = []
-            for i, j in zip(temp, ctx.saved_tensors):
-                res = torch.as_tensor(torch.from_numpy(i), dtype=j.dtype)
-                if j.is_cuda: # pragma: no cover
+
+            # match the type and device of the input tensors
+            for i, j in zip(grad_input_list, ctx.saved_tensors):
+                res = torch.as_tensor(i, dtype=j.dtype)
+                if j.is_cuda:  # pragma: no cover
                     cuda_device = j.get_device()
                     res = torch.as_tensor(res, device=cuda_device)
                 grad_input.append(res)
 
             return (None,) + tuple(grad_input)
 
-    class qnode_str(partial):
+    class TorchQNode(partial):
         """Torch QNode"""
+
         # pylint: disable=too-few-public-methods
+
+        # Here, we are making use of functools.partial to dynamically add
+        # methods and attributes to the custom gradient method defined below.
+        # This allows us to provide more useful __str__ and __repr__ methods
+        # for the decorated function (so it would still look like a QNode to end-users),
+        # as well as making QNode attributes and methods available.
+
+        @property
+        def interface(self):
+            """String representing the QNode interface"""
+            return "torch"
 
         def __str__(self):
             """String representation"""
-            detail = "<QNode: device='{}', func={}, wires={}, interface=PyTorch>"
-            return detail.format(qnode.device.short_name, qnode.func.__name__, qnode.num_wires)
+            detail = "<QNode: device='{}', func={}, wires={}, interface={}>"
+            return detail.format(
+                qnode.device.short_name, qnode.func.__name__, qnode.num_wires, self.interface
+            )
 
         def __repr__(self):
             """REPL representation"""
             return self.__str__()
 
-    @qnode_str
+        # Bind QNode methods
+        print_applied = qnode.print_applied
+        jacobian = qnode.jacobian
+        metric_tensor = qnode.metric_tensor
+        draw = qnode.draw
+        func = qnode.func
+        set_trainable_args = qnode.set_trainable_args
+        get_trainable_args = qnode.get_trainable_args
+        _qnode = qnode
+
+        # Bind QNode attributes. Note that attributes must be
+        # bound as properties; by making use of closure, we ensure
+        # that updates to the wrapped QNode attributes are reflected
+        # by the wrapper class.
+        arg_vars = property(lambda self: qnode.arg_vars)
+        num_variables = property(lambda self: qnode.num_variables)
+        par_to_grad_method = property(lambda self: qnode.par_to_grad_method)
+
+    @TorchQNode
     def custom_apply(*args, **kwargs):
         """Custom apply wrapper, to allow passing kwargs to the TorchQNode"""
 
